@@ -1,0 +1,2692 @@
+--- ./linux-2.4.x/arch/m68knommu/mm/init.c.ORIG	2004-04-07 18:15:39.000000000 -0600
++++ ./linux-2.4.x/arch/m68knommu/mm/init.c	2004-08-05 09:53:35.000000000 -0600
+@@ -252,7 +252,7 @@
+ void
+ free_initmem()
+ {
+-#if defined(CONFIG_RAMKERNEL) && !defined(CONFIG_UCDIMM)
++#if defined(CONFIG_RAMKERNEL) && !(defined(CONFIG_UCDIMM) || defined(CONFIG_CLIE))
+ 	unsigned long addr;
+ 	extern char __init_begin, __init_end;
+ /*
+--- ./linux-2.4.x/arch/m68knommu/platform/68VZ328/Makefile.ORIG	2004-04-07 18:15:41.000000000 -0600
++++ ./linux-2.4.x/arch/m68knommu/platform/68VZ328/Makefile	2004-08-05 09:53:35.000000000 -0600
+@@ -34,10 +34,14 @@
+ ifeq ($(CONFIG_CWVZ328),y)
+ $(BOARD)/crt0_$(MODEL).o: $(BOARD)/crt0_$(MODEL).S $(BOARD)/bootlogo.rh
+ else
++ifeq ($(CONFIG_CLIE),y)
++$(BOARD)/crt0_$(MODEL).o: $(BOARD)/crt0_$(MODEL).S
++else
+ $(BOARD)/crt0_$(MODEL).o: $(BOARD)/crt0_$(MODEL).S $(BOARD)/crt0_fixed.S $(BOARD)/bootlogo.rh
+ endif
+ endif
+ endif
++endif
+ 
+ entry.o: entry.S m68k_defs.h
+ 
+--- ./linux-2.4.x/arch/m68knommu/Boards.mk.ORIG	2004-04-07 18:15:38.000000000 -0600
++++ ./linux-2.4.x/arch/m68knommu/Boards.mk	2004-08-05 09:53:35.000000000 -0600
+@@ -41,6 +41,9 @@
+ ifdef CONFIG_DRAGONIXVZ
+ BOARD := dragonixvz
+ endif
++ifdef CONFIG_CLIE
++BOARD := clie
++endif
+ endif
+ #(/es)
+ 
+--- ./linux-2.4.x/arch/m68knommu/config.in.ORIG	2004-04-07 18:27:54.000000000 -0600
++++ ./linux-2.4.x/arch/m68knommu/config.in	2004-08-05 09:53:35.000000000 -0600
+@@ -139,6 +139,7 @@
+ 	if [ "$CONFIG_CWVZ328" = "y" ]; then
+ 	bool '  2 waitstates for flash' CONFIG_FLASH2WS
+ 	fi
++	bool 'Clie' CONFIG_CLIE
+ fi
+ 
+ if [ "$CONFIG_UCSIMM" = "y" -o "$CONFIG_UCDIMM" = "y" -o "$CONFIG_DRAGEN2" = "y" ]; then
+--- ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/config.c.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/config.c	2004-09-10 23:20:35.000000000 -0600
+@@ -0,0 +1,128 @@
++/*
++ *  linux/arch/$(ARCH)/platform/$(PLATFORM)/config.c
++ *
++ *  Copyright (C) 1993 Hamish Macdonald
++ *  Copyright (C) 1999 D. Jeff Dionne
++ *
++ * This file is subject to the terms and conditions of the GNU General Public
++ * License.  See the file COPYING in the main directory of this archive
++ * for more details.
++ */
++
++#include <stdarg.h>
++#include <linux/config.h>
++#include <linux/types.h>
++#include <linux/kernel.h>
++#include <linux/mm.h>
++#include <linux/tty.h>
++#include <linux/console.h>
++
++#include <asm/setup.h>
++#include <asm/system.h>
++#include <asm/pgtable.h>
++#include <asm/irq.h>
++#include <asm/machdep.h>
++
++
++#include <asm/MC68VZ328.h>
++
++void BSP_sched_init(void (*timer_routine)(int, void *, struct pt_regs *))
++{
++#ifdef CONFIG_DRAGONBALL_USE_RTC
++  /* Enable RTC */
++  RTCCTL|=RTCCTL_EN;
++  /* Enable 128Hz interrupt line */
++  RTCIENR|=RTCIENR_SAM5;
++  request_irq(SAM_IRQ_NUM, timer_routine, IRQ_FLG_LOCK, "timer", NULL);
++#else
++  /* Restart mode, Enable int, 32KHz, Enable timer */
++  TCTL = TCTL_OM | TCTL_IRQEN | TCTL_CLKSOURCE_32KHZ | TCTL_TEN;
++  /* Set prescaler (Divide 32.768KHz by 1)*/
++  TPRER = 0;
++  /* Set compare register  32.768Khz / 32 / 10 = 100 */
++  TCMP = 327;
++  request_irq(TMR_IRQ_NUM, timer_routine, IRQ_FLG_LOCK, "timer", NULL);
++#endif
++}
++
++void BSP_tick(void)
++{
++#ifdef CONFIG_DRAGONBALL_USERTC
++        RTCISR|=RTCISR_SAM5;
++#else
++	/* Reset Timer1 */
++        TSTAT &= 0;
++#endif
++
++}
++
++unsigned long BSP_gettimeoffset (void)
++{
++  return 0;
++}
++
++void BSP_gettod (int *yearp, int *monp, int *dayp,
++		   int *hourp, int *minp, int *secp)
++{
++ //rtcgettod(yearp, monp, dayp, hourp, minp, secp);
++ *yearp = *monp = *dayp = *hourp = *minp = *secp = 0;
++}
++
++int BSP_hwclk(int op, struct hwclk_time *t)
++{
++  if (!op) {
++    /* read */
++  } else {
++    /* write */
++  }
++  return 0;
++}
++
++int BSP_set_clock_mmss (unsigned long nowtime)
++{
++#if 0
++  short real_seconds = nowtime % 60, real_minutes = (nowtime / 60) % 60;
++
++  tod->second1 = real_seconds / 10;
++  tod->second2 = real_seconds % 10;
++  tod->minute1 = real_minutes / 10;
++  tod->minute2 = real_minutes % 10;
++#endif
++  return 0;
++}
++
++void BSP_reset (void)
++{
++  cli();
++  asm volatile ("
++    moveal #0x02000000, %a0;
++    moveb #0, 0xFFFFF300;
++    moveal 0(%a0), %sp;
++    moveal 4(%a0), %a0;
++    jmp (%a0);
++    ");
++}
++
++unsigned char cs8900a_hwaddr1[6],cs8900a_hwaddr2[6];
++static int errno;
++
++void config_BSP(char *command, int len)
++{
++  int year, mon, day, hour, min, sec;
++
++  printk("68VZ328 DragonBallVZ support (c) 2001 Lineo, Inc.\n");
++
++  strncpy(command, "console=ttyS0", len);
++
++  mach_sched_init      = BSP_sched_init;
++  mach_tick            = BSP_tick;
++  mach_gettimeoffset   = BSP_gettimeoffset;
++  mach_gettod          = BSP_gettod;
++  mach_hwclk           = NULL;
++  mach_set_clock_mmss  = NULL;
++  // mach_mksound         = NULL;
++  mach_reset           = BSP_reset;
++  // mach_debug_init      = NULL;
++
++  config_M68VZ328_irq();
++}
+--- ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/crt0_ram.S.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/crt0_ram.S	2004-08-30 17:35:51.000000000 -0600
+@@ -0,0 +1,154 @@
++#define IMM #
++#define DEBUG(x) \
++	moveb	IMM x, %d7; \
++	moveb	%d7,0xfffff907; \
++    1:  movew	0xfffff906, %d7; \
++	andw	IMM 0x2000, %d7; \
++	beq	1b
++
++
++
++	.global _start
++	.global _stext
++	.global _ramstart
++	.global _ramend
++	.global _rambase
++	.global _ramvec
++
++
++
++	.data
++_ramstart:
++.long   0
++_ramend:
++.long   0
++_rambase:
++.long	0
++_ramvec:
++.long	0
++
++
++
++	.text
++_start:
++_stext:
++
++
++
++	movew	#0x2700, %sr
++        moveb	#0x00,   0xfffffb0b	/* Watchdog off */
++        moveb	#0x00,   0xfffff000	/* SCR */
++        movew	#0x2483, 0xfffff200	/* PLLCR */
++        movew	#0x0347, 0xfffff202	/* PLLFSR */
++	movew	#32767, %d0		/* PLL settle wait loop */
++plllp:	subq	#1, %d0
++	bne	plllp
++
++
++
++	/* UART1 setup */
++	orib	#4,      0xfffff431	/* Magic taken from PalmOS ROM. I'm gonna think this pin is in GPIO mode, even though I can't prove that */
++	moveb	#0xcf,   0xfffff423	/* Dedicated IO */
++	moveb	#0x08,   0xfffff906	/* Transmitter settings */
++	movew	#0x0080, 0xfffff908	/* Misc settings */
++	movew	#0x326,  0xfffff902	/* Baud rate */
++	movew	#0xe100, 0xfffff900	/* Enable */
++
++
++
++	/* Make sure console works */
++	DEBUG('A');
++
++
++
++        /* My parts are scattered, %a0 has a list.  Make me whole */
++	DEBUG('B');
++	moveal	#0x5000, %a2		/* FIXME: Hard coded load address */
++	moveal	%a0@+, %a1		/* Move to page 1 (this is page 0) */
++mvlp0:
++	movew	#1024, %d6
++	moveal	%a0@+, %a1
++	movel	%a1, %d0
++	beq	mvdone
++mvlp1:
++	movel	%a1@+, %d0
++	movel	%d0, %a2@+
++	subw	#1, %d6
++        bne	mvlp1
++        bra	mvlp0
++mvdone:
++
++
++
++	/* Stack */
++	moveal	#__ramend - 0x10, %sp
++
++
++
++	/* Move romfs beyond BSS */
++	DEBUG('C')
++	moveal	#_sbss, %a0
++	moveal	#_ebss, %a1
++	movel	%a0, %a2
++
++	movel	%a0@(8), %d0		/* romfs size */
++	addl	#8, %d0			/* plus header */
++        andl	#0xfffffffc, %d0	/* Whole words */
++	addl	%d0, %a0
++	addl	%d0, %a1
++	movel	%a1, _ramstart		/* set to the END of romfs, not _ebss! */
++
++romlp:  movel	%a0@-, %d0		/* Copy dword */
++        movel	%d0, %a1@-
++        cmpl	%a0, %a2		/* Check if at end */
++        bne	romlp
++
++
++
++	/* Clear bss  */
++	DEBUG('D');
++        moveal	#_sbss, %a0
++        moveal	#_ebss, %a1
++        /* Copy 0 to %a0 until %a0 == %a1 */
++bsslp:	clrl    %a0@+
++        cmpal   %a0, %a1
++        bne     bsslp
++
++
++
++	/* Fill vars */
++	DEBUG('E')
++	movel   #_sdata, %d0
++	movel   %d0, _rambase
++	movel   #__ramend, %d0
++	movel   %d0, _ramend
++        movel   #__ramvec, %d0
++	movel   %d0, _ramvec
++
++
++
++	/* Load the current task pointer and stack */
++	DEBUG('F')
++        lea	init_task_union, %a0
++        movel	%a0, _current_task
++        lea	0x2000(%a0), %sp
++
++ 
++
++	/* Start kernel */
++        DEBUG('G')
++        DEBUG('\n')
++        DEBUG('\r')
++stlp:   jsr	start_kernel
++        DEBUG('!')
++        bra stlp
++ 
++
++
++_exit:
++	jmp	_exit
++
++	.data
++env:
++	.long   0
++	.text
+--- ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/ints.c.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/ints.c	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,361 @@
++/*
++ * linux/arch/$(ARCH)/platform/$(PLATFORM)/ints.c
++ *
++ * This file is subject to the terms and conditions of the GNU General Public
++ * License.  See the file COPYING in the main directory of this archive
++ * for more details.
++ *
++ * Copyright 1996 Roman Zippel
++ * Copyright 1999 D. Jeff Dionne <jeff@uClinux.org>
++
++ * Phil Wilshire Sept 2002 added dummy init_irq_proc call for SYSCTL
++ */
++
++#include <linux/types.h>
++#include <linux/kernel.h>
++#include <linux/sched.h>
++#include <linux/kernel_stat.h>
++
++#include <asm/system.h>
++#include <asm/irq.h>
++#include <asm/traps.h>
++#include <asm/io.h>
++#include <asm/machdep.h>
++#include <asm/setup.h>
++
++#include <asm/MC68VZ328.h>
++
++#define INTERNAL_IRQS (32)
++
++/* assembler routines */
++asmlinkage void buserr(void);
++asmlinkage void exception3(void);
++asmlinkage void exception4(void);
++asmlinkage void exception5(void);
++asmlinkage void exception6(void);
++asmlinkage void exception7(void);
++asmlinkage void exception8(void);
++asmlinkage void exception9(void);
++asmlinkage void exception10(void);
++asmlinkage void exception11(void);
++asmlinkage void exception14(void);
++asmlinkage void exception15(void);
++asmlinkage void bad_interrupt(void);
++asmlinkage void inthandler1(void);
++asmlinkage void inthandler2(void);
++asmlinkage void inthandler3(void);
++asmlinkage void inthandler4(void);
++asmlinkage void inthandler5(void);
++asmlinkage void inthandler6(void);
++asmlinkage void inthandler7(void);
++asmlinkage void system_call(void);
++asmlinkage void trap1(void);
++asmlinkage void trap15(void);
++
++// extern void *_ramvec[];
++extern e_vector *_ramvec;
++
++/* irq node variables for the 32 (potential) on chip sources */
++static irq_node_t *int_irq_list[INTERNAL_IRQS];
++
++static int int_irq_count[INTERNAL_IRQS];
++static short int_irq_ablecount[INTERNAL_IRQS];
++
++static void int_badint(int irq, void *dev_id, struct pt_regs *fp)
++{
++	num_spurious += 1;
++}
++
++/*
++ * This function should be called during kernel startup to initialize
++ * the amiga IRQ handling routines.
++ */
++
++void M68VZ328_init_IRQ(void)
++{
++	int i;
++
++        /* set up the vectors */
++        for (i=2; i < 32; ++i)
++                _ramvec[i] = bad_interrupt;
++
++        _ramvec[2] = buserr;
++        _ramvec[3] = exception3;
++        _ramvec[4] = exception4;
++        _ramvec[5] = exception5;
++        _ramvec[6] = exception6;
++        _ramvec[7] = exception7;
++        _ramvec[8] = exception8;
++        _ramvec[9] = exception9;
++        _ramvec[10] = exception10;
++        _ramvec[11] = exception11;
++        _ramvec[14] = exception14;
++        _ramvec[15] = exception15;
++        _ramvec[32] = system_call;
++        _ramvec[33] = trap1;
++        _ramvec[47] = trap15;
++
++        _ramvec[64] = bad_interrupt;
++        _ramvec[65] = inthandler1;
++        _ramvec[66] = inthandler2;
++        _ramvec[67] = inthandler3;
++        _ramvec[68] = inthandler4;
++        _ramvec[69] = inthandler5;
++        _ramvec[70] = inthandler6;
++        _ramvec[71] = inthandler7;
++ 
++	IVR = 0x40; /* Set DragonBall IVR (interrupt base) to 64 */
++
++	/* initialize handlers */
++	for (i = 0; i < INTERNAL_IRQS; i++) {
++		int_irq_list[i] = NULL;
++
++		int_irq_ablecount[i] = 0;
++		int_irq_count[i] = 0;
++	}
++	/* turn off all interrupts */
++	IMR = ~0;
++}
++
++void M68VZ328_insert_irq(irq_node_t **list, irq_node_t *node)
++{
++	unsigned long flags;
++	irq_node_t *cur;
++
++	if (!node->dev_id)
++		printk("%s: Warning: dev_id of %s is zero\n",
++		       __FUNCTION__, node->devname);
++
++	save_flags(flags);
++	cli();
++
++	cur = *list;
++
++	while (cur) {
++		list = &cur->next;
++		cur = cur->next;
++	}
++
++	node->next = cur;
++	*list = node;
++
++	restore_flags(flags);
++}
++
++void M68VZ328_delete_irq(irq_node_t **list, void *dev_id)
++{
++	unsigned long flags;
++	irq_node_t *node;
++
++	save_flags(flags);
++	cli();
++
++	for (node = *list; node; list = &node->next, node = *list) {
++		if (node->dev_id == dev_id) {
++			*list = node->next;
++			/* Mark it as free. */
++			node->handler = NULL;
++			restore_flags(flags);
++			return;
++		}
++	}
++	restore_flags(flags);
++	printk ("%s: tried to remove invalid irq\n", __FUNCTION__);
++}
++
++int M68VZ328_request_irq(unsigned int irq, void (*handler)(int, void *, struct pt_regs *),
++                         unsigned long flags, const char *devname, void *dev_id)
++{
++	if (irq >= INTERNAL_IRQS) {
++		printk ("%s: Unknown IRQ %d from %s\n", __FUNCTION__, irq, devname);
++		return -ENXIO;
++	}
++
++	if (!int_irq_list[irq]) {
++		int_irq_list[irq] = new_irq_node();
++		int_irq_list[irq]->flags   = IRQ_FLG_STD;
++	}
++
++	if (!(int_irq_list[irq]->flags & IRQ_FLG_STD)) {
++		if (int_irq_list[irq]->flags & IRQ_FLG_LOCK) {
++			printk("%s: IRQ %d from %s is not replaceable\n",
++			       __FUNCTION__, irq, int_irq_list[irq]->devname);
++			return -EBUSY;
++		}
++		if (flags & IRQ_FLG_REPLACE) {
++			printk("%s: %s can't replace IRQ %d from %s\n",
++			       __FUNCTION__, devname, irq, int_irq_list[irq]->devname);
++			return -EBUSY;
++		}
++	}
++	int_irq_list[irq]->handler = handler;
++	int_irq_list[irq]->flags   = flags;
++	int_irq_list[irq]->dev_id  = dev_id;
++	int_irq_list[irq]->devname = devname;
++
++	/* enable in the IMR */
++	if (!int_irq_ablecount[irq])
++		*(volatile unsigned long *)0xfffff304 &= ~(1<<irq);
++
++	return 0;
++}
++
++void M68VZ328_free_irq(unsigned int irq, void *dev_id)
++{
++	if (irq >= INTERNAL_IRQS) {
++		printk ("%s: Unknown IRQ %d\n", __FUNCTION__, irq);
++		return;
++	}
++
++	if (int_irq_list[irq]->dev_id != dev_id)
++		printk("%s: removing probably wrong IRQ %d from %s\n",
++		       __FUNCTION__, irq, int_irq_list[irq]->devname);
++	int_irq_list[irq]->handler = int_badint;
++	int_irq_list[irq]->flags   = IRQ_FLG_STD;
++	int_irq_list[irq]->dev_id  = NULL;
++	int_irq_list[irq]->devname = NULL;
++
++	*(volatile unsigned long *)0xfffff304 |= 1<<irq;
++}
++
++/*
++ * Enable/disable a particular machine specific interrupt source.
++ * Note that this may affect other interrupts in case of a shared interrupt.
++ * This function should only be called for a _very_ short time to change some
++ * internal data, that may not be changed by the interrupt at the same time.
++ * int_(enable|disable)_irq calls may also be nested.
++ */
++
++void M68VZ328_enable_irq(unsigned int irq)
++{
++	if (irq >= INTERNAL_IRQS) {
++		printk("%s: Unknown IRQ %d\n", __FUNCTION__, irq);
++		return;
++	}
++
++	if (--int_irq_ablecount[irq])
++		return;
++
++	/* enable the interrupt */
++	*(volatile unsigned long *)0xfffff304 &= ~(1<<irq);
++}
++
++void M68VZ328_disable_irq(unsigned int irq)
++{
++	if (irq >= INTERNAL_IRQS) {
++		printk("%s: Unknown IRQ %d\n", __FUNCTION__, irq);
++		return;
++	}
++
++	if (int_irq_ablecount[irq]++)
++		return;
++
++	/* disable the interrupt */
++	*(volatile unsigned long *)0xfffff304 |= 1<<irq;
++}
++
++/* The 68k family did not have a good way to determine the source
++ * of interrupts until later in the family.  The EC000 core does
++ * not provide the vector number on the stack, we vector everything
++ * into one vector and look in the blasted mask register...
++ * This code is designed to be fast, almost constant time, not clean!
++ */
++inline int M68VZ328_do_irq(int vec, struct pt_regs *fp)
++{
++	int irq;
++	int mask;
++
++	unsigned long pend = *(volatile unsigned long *)0xfffff30c;
++
++	while (pend) {
++		if (pend & 0x0000ffff) {
++			if (pend & 0x000000ff) {
++				if (pend & 0x0000000f) {
++					mask = 0x00000001;
++					irq = 0;
++				} else {
++					mask = 0x00000010;
++					irq = 4;
++				}
++			} else {
++				if (pend & 0x00000f00) {
++					mask = 0x00000100;
++					irq = 8;
++				} else {
++					mask = 0x00001000;
++					irq = 12;
++				}
++			}
++		} else {
++			if (pend & 0x00ff0000) {
++				if (pend & 0x000f0000) {
++					mask = 0x00010000;
++					irq = 16;
++				} else {
++					mask = 0x00100000;
++					irq = 20;
++				}
++			} else {
++				if (pend & 0x0f000000) {
++					mask = 0x01000000;
++					irq = 24;
++				} else {
++					mask = 0x10000000;
++					irq = 28;
++				}
++			}
++		}
++
++		while (! (mask & pend)) {
++			mask <<=1;
++			irq++;
++		}
++
++		if (int_irq_list[irq] && int_irq_list[irq]->handler) {
++			int_irq_list[irq]->handler(irq, int_irq_list[irq]->dev_id, fp);
++			int_irq_count[irq]++;
++		} else {
++			printk("unregistered interrupt %d!\nTurning it off in the IMR...\n", irq);
++			*(volatile unsigned long *)0xfffff304 |= mask;
++		}
++		pend &= ~mask;
++	}
++	return 0;
++}
++
++int M68VZ328_get_irq_list(char *buf)
++{
++	int i, len = 0;
++	irq_node_t *node;
++
++	len += sprintf(buf+len, "Internal 68VZ328 interrupts\n");
++
++	for (i = 0; i < INTERNAL_IRQS; i++) {
++		if (!(node = int_irq_list[i]))
++			continue;
++		if (!(node->handler))
++			continue;
++
++		len += sprintf(buf+len, " %2d: %10u    %s\n", i,
++		               int_irq_count[i], int_irq_list[i]->devname);
++	}
++	return len;
++}
++
++void config_M68VZ328_irq(void)
++{
++	mach_default_handler = NULL;
++	mach_init_IRQ        = M68VZ328_init_IRQ;
++	mach_request_irq     = M68VZ328_request_irq;
++	mach_free_irq        = M68VZ328_free_irq;
++	mach_enable_irq      = M68VZ328_enable_irq;
++	mach_disable_irq     = M68VZ328_disable_irq;
++	mach_get_irq_list    = M68VZ328_get_irq_list;
++	mach_process_int     = M68VZ328_do_irq;
++}
++
++/* PSW dummy call to allow SYSCTL kernel option to be enabled */
++void init_irq_proc(void)
++{
++        /* Insert /proc/irq driver here */
++}
+--- ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/ram.ld.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./linux-2.4.x/arch/m68knommu/platform/68VZ328/clie/ram.ld	2004-08-25 23:36:40.000000000 -0600
+@@ -0,0 +1,94 @@
++MEMORY
++{
++        ramvec : ORIGIN = 0x0000000, LENGTH = 0x0000400
++	bvec   : ORIGIN = 0x0004000, LENGTH = 0x0000400
++        ram    : ORIGIN = 0x0004400, LENGTH = 0x1000000 - 0x0004400
++        eram   : ORIGIN = 0x01000000, LENGTH = 0
++}
++
++SECTIONS
++{
++  .romvec :
++	{
++	_romvec = . ;
++	} > bvec
++
++  .ramvec :
++	{
++	__ram_start = . ;
++	__ramvec = . ;
++	} > ramvec
++  
++  .text :
++	{
++	_stext = . ;
++        	*(.text)
++	. = ALIGN(0x4) ;
++		*(.text.*)
++	. = ALIGN(0x4) ;
++		*(.exitcall.exit)
++	. = ALIGN(0x4) ;
++		*(.kstrtab)
++	. = ALIGN(16);		/* Exception table */
++	__start___ex_table = .;
++		*(__ex_table)
++	__stop___ex_table = .;
++
++	__start___ksymtab = .; /* Kernel symbol table */
++		*(__ksymtab)
++	__stop___ksymtab = .;
++
++	. = ALIGN(0x4);
++	_etext = . ;
++	__data_rom_start = . ;
++        } > ram
++
++  .data : 
++	{
++	. = ALIGN(0x4) ;
++	_sdata = . ;
++	__data_start = . ;
++
++	. = ALIGN(0x4) ;
++		*(.rodata)
++	. = ALIGN(0x4) ;
++		*(.data)
++	. = ALIGN(0x4) ;
++		*(.data.*)
++
++	. = ALIGN(0x4) ;
++	__setup_start = .;
++		*(.setup.init)
++	. = ALIGN(0x4) ;
++	__setup_end = .;
++
++	. = ALIGN(0x4) ;
++	__initcall_start = .;
++		*(.initcall.init)
++	. = ALIGN(0x4) ;
++	__initcall_end = .;
++
++	. = ALIGN(0x2000) ;
++		*(.data.init_task)
++	. = ALIGN(0x2000) ;
++
++	_edata = . ;
++        } > ram
++
++  .bss :
++        {
++	. = ALIGN(0x4) ;
++	_sbss = . ;
++		*(.bss)
++	. = ALIGN(0x4) ;
++		*(COMMON)
++	. = ALIGN(0x4) ;
++	_ebss = . ;
++	_end = . ;
++	} > ram
++
++  .eram :
++	{
++        __ramend = . ;
++	} > eram
++}
+--- ./linux-2.4.x/drivers/block/blkmem.c.ORIG	2004-04-07 18:16:15.000000000 -0600
++++ ./linux-2.4.x/drivers/block/blkmem.c	2004-08-05 09:53:36.000000000 -0600
+@@ -222,6 +222,11 @@
+ #define FIXED_ROMARRAY __romfs_start
+ #endif
+ 
++#if defined(CONFIG_CLIE)
++extern char _ebss;
++#define FIXUP_ARENAS  arena[0].address = (unsigned long) &_ebss;
++#endif
++
+ /******* END OF BOARD-SPECIFIC CONFIGURATION ************/
+ 
+ /* Simple romfs, at internal, cat on the end of kernel, or seperate fixed adderess romfs. */
+--- ./linux-2.4.x/drivers/char/68328serial.c.ORIG	2004-04-07 18:16:16.000000000 -0600
++++ ./linux-2.4.x/drivers/char/68328serial.c	2004-08-05 09:53:36.000000000 -0600
+@@ -122,6 +122,9 @@
+ #if defined(CONFIG_M68EZ328ADS) || defined(CONFIG_ALMA_ANS) || defined(CONFIG_DRAGONIXVZ) || defined(CONFIG_CWEZ328) || defined(CONFIG_CWVZ328)
+ #define	CONSOLE_BAUD_RATE	115200
+ #define	DEFAULT_CBAUD		B115200
++#elif defined(CONFIG_CLIE)
++#define CONSOLE_BAUD_RATE       9600
++#define DEFAULT_CBAUD           9600
+ #else
+ 	/* (es) */
+ 	/* note: this is messy, but it works, again, perhaps defined somewhere else?*/
+--- ./linux-2.4.x/include/asm-m68knommu/page_offset.h.ORIG	2004-04-07 18:17:18.000000000 -0600
++++ ./linux-2.4.x/include/asm-m68knommu/page_offset.h	2004-08-05 10:01:30.000000000 -0600
+@@ -35,6 +35,9 @@
+ #ifdef CONFIG_CWVZ328
+ #define PAGE_OFFSET_RAW		0x00000000
+ #endif
++#ifdef CONFIG_CLIE
++#define PAGE_OFFSET_RAW		0x00000000
++#endif
+ 
+ #if defined(CONFIG_UCDIMM) || defined(CONFIG_DRAGEN2)
+ #ifdef CONFIG_M68VZ328 
+--- ./vendors/Sony/Clie/config.arch.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/config.arch	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,16 @@
++.EXPORT_ALL_VARIABLES:
++############################################################################
++
++CPUFLAGS      = -m68000
++VENDOR_CFLAGS =
++# DISABLE_XIP := 1             # XIP works fine
++# DISABLE_MOVE_RODATA := 1     # move-rodata is fine
++# DISABLE_SHARED_LIBS := 1     # shared libs is fine
++LOPT := -Os
++UOPT := -Os
++
++############################################################################
++
++include $(ROOTDIR)/vendors/config/m68knommu/config.arch
++
++############################################################################
+--- ./vendors/Sony/Clie/config.linux-2.4.x.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/config.linux-2.4.x	2004-09-10 23:45:58.000000000 -0600
+@@ -0,0 +1,581 @@
++#
++# Automatically generated make config: don't edit
++#
++CONFIG_UCLINUX=y
++CONFIG_UID16=y
++CONFIG_RWSEM_GENERIC_SPINLOCK=y
++# CONFIG_RWSEM_XCHGADD_ALGORITHM is not set
++
++#
++# Code maturity level options
++#
++CONFIG_EXPERIMENTAL=y
++
++#
++# Loadable module support
++#
++# CONFIG_MODULES is not set
++
++#
++# Processor type and features
++#
++# CONFIG_M68000 is not set
++# CONFIG_M68EN302 is not set
++# CONFIG_M68328 is not set
++# CONFIG_M68EZ328 is not set
++CONFIG_M68VZ328=y
++# CONFIG_M68332 is not set
++# CONFIG_M68360 is not set
++# CONFIG_M5204 is not set
++# CONFIG_M5206 is not set
++# CONFIG_M5206e is not set
++# CONFIG_M5249 is not set
++# CONFIG_M5272 is not set
++# CONFIG_M5280 is not set
++# CONFIG_M5282 is not set
++# CONFIG_M5307 is not set
++# CONFIG_M5407 is not set
++# CONFIG_CLOCK_AUTO is not set
++# CONFIG_CLOCK_11MHz is not set
++# CONFIG_CLOCK_16MHz is not set
++# CONFIG_CLOCK_20MHz is not set
++# CONFIG_CLOCK_24MHz is not set
++# CONFIG_CLOCK_25MHz is not set
++# CONFIG_CLOCK_29_5MHz is not set
++CONFIG_CLOCK_33MHz=y
++# CONFIG_CLOCK_40MHz is not set
++# CONFIG_CLOCK_45MHz is not set
++# CONFIG_CLOCK_48MHz is not set
++# CONFIG_CLOCK_50MHz is not set
++# CONFIG_CLOCK_54MHz is not set
++# CONFIG_CLOCK_60MHz is not set
++# CONFIG_CLOCK_64MHz is not set
++# CONFIG_CLOCK_66MHz is not set
++# CONFIG_CLOCK_70MHz is not set
++# CONFIG_CLOCK_140MHz is not set
++
++#
++# Platform
++#
++# CONFIG_PSEUDO_EXCEPTION_VECTOR is not set
++# CONFIG_UCDIMM is not set
++# CONFIG_DRAGEN2 is not set
++# CONFIG_DRAGONIXVZ is not set
++# CONFIG_CWVZ328 is not set
++CONFIG_CLIE=y
++# CONFIG_RAMAUTO is not set
++# CONFIG_RAM4MB is not set
++# CONFIG_RAM8MB is not set
++CONFIG_RAM16MB=y
++# CONFIG_RAM32MB is not set
++# CONFIG_RAM64MB is not set
++CONFIG_AUTOBIT=y
++# CONFIG_RAM8BIT is not set
++# CONFIG_RAM16BIT is not set
++# CONFIG_RAM32bit is not set
++CONFIG_RAMKERNEL=y
++# CONFIG_ROMKERNEL is not set
++# CONFIG_HIMEMKERNEL is not set
++
++#
++# General setup
++#
++CONFIG_NET=y
++# CONFIG_VISWS is not set
++# CONFIG_PCI is not set
++# CONFIG_MCA is not set
++# CONFIG_HOTPLUG is not set
++# CONFIG_PCMCIA is not set
++# CONFIG_SYSVIPC is not set
++# CONFIG_BSD_PROCESS_ACCT is not set
++# CONFIG_SYSCTL is not set
++# CONFIG_KCORE_ELF is not set
++CONFIG_KCORE_AOUT=y
++CONFIG_BINFMT_FLAT=y
++# CONFIG_BINFMT_ZFLAT is not set
++# CONFIG_BINFMT_SHARED_FLAT is not set
++# CONFIG_BINFMT_AOUT is not set
++# CONFIG_BINFMT_ELF is not set
++# CONFIG_BINFMT_MISC is not set
++# CONFIG_PM is not set
++# CONFIG_ACPI is not set
++# CONFIG_APM is not set
++
++#
++# Memory Technology Devices (MTD)
++#
++# CONFIG_MTD is not set
++
++#
++# Parallel port support
++#
++# CONFIG_PARPORT is not set
++
++#
++# Plug and Play configuration
++#
++# CONFIG_PNP is not set
++# CONFIG_ISAPNP is not set
++
++#
++# Block devices
++#
++# CONFIG_BLK_DEV_FD is not set
++# CONFIG_BLK_DEV_XD is not set
++# CONFIG_PARIDE is not set
++# CONFIG_BLK_CPQ_DA is not set
++# CONFIG_BLK_CPQ_CISS_DA is not set
++# CONFIG_CISS_SCSI_TAPE is not set
++# CONFIG_CISS_MONITOR_THREAD is not set
++# CONFIG_BLK_DEV_DAC960 is not set
++# CONFIG_BLK_DEV_UMEM is not set
++# CONFIG_BLK_DEV_LOOP is not set
++# CONFIG_BLK_DEV_NBD is not set
++CONFIG_BLK_DEV_RAM=y
++CONFIG_BLK_DEV_RAM_SIZE=4096
++# CONFIG_BLK_DEV_INITRD is not set
++# CONFIG_BLK_DEV_RAMDISK_DATA is not set
++CONFIG_BLK_DEV_BLKMEM=y
++CONFIG_NOFLASH=y
++# CONFIG_AMDFLASH is not set
++# CONFIG_INTELFLASH is not set
++# CONFIG_BLK_STATS is not set
++
++#
++# Networking options
++#
++CONFIG_PACKET=y
++# CONFIG_PACKET_MMAP is not set
++# CONFIG_NETLINK_DEV is not set
++# CONFIG_NETFILTER is not set
++# CONFIG_FILTER is not set
++CONFIG_UNIX=y
++CONFIG_INET=y
++# CONFIG_IP_MULTICAST is not set
++# CONFIG_IP_ADVANCED_ROUTER is not set
++# CONFIG_IP_PNP is not set
++# CONFIG_NET_ARP_LIMIT is not set
++# CONFIG_NET_IPIP is not set
++# CONFIG_NET_IPGRE is not set
++# CONFIG_ARPD is not set
++# CONFIG_INET_ECN is not set
++# CONFIG_SYN_COOKIES is not set
++# CONFIG_IPV6 is not set
++# CONFIG_KHTTPD is not set
++
++#
++#    SCTP Configuration (EXPERIMENTAL)
++#
++CONFIG_IPV6_SCTP__=y
++# CONFIG_IP_SCTP is not set
++# CONFIG_ATM is not set
++# CONFIG_VLAN_8021Q is not set
++
++#
++#  
++#
++# CONFIG_IPX is not set
++# CONFIG_ATALK is not set
++
++#
++# Appletalk devices
++#
++# CONFIG_DEV_APPLETALK is not set
++# CONFIG_DECNET is not set
++# CONFIG_BRIDGE is not set
++# CONFIG_X25 is not set
++# CONFIG_LAPB is not set
++# CONFIG_LLC is not set
++# CONFIG_NET_DIVERT is not set
++# CONFIG_ECONET is not set
++# CONFIG_WAN_ROUTER is not set
++# CONFIG_NET_FASTROUTE is not set
++# CONFIG_NET_HW_FLOWCONTROL is not set
++
++#
++# QoS and/or fair queueing
++#
++# CONFIG_NET_SCHED is not set
++# CONFIG_IPSEC is not set
++
++#
++# Network testing
++#
++# CONFIG_NET_PKTGEN is not set
++
++#
++# Telephony Support
++#
++# CONFIG_PHONE is not set
++# CONFIG_PHONE_IXJ is not set
++# CONFIG_PHONE_IXJ_PCMCIA is not set
++
++#
++# ATA/IDE/MFM/RLL support
++#
++# CONFIG_IDE is not set
++# CONFIG_BLK_DEV_IDE_MODES is not set
++# CONFIG_BLK_DEV_HD is not set
++
++#
++# SCSI support
++#
++# CONFIG_SCSI is not set
++
++#
++# I2O device support
++#
++# CONFIG_I2O is not set
++# CONFIG_I2O_BLOCK is not set
++# CONFIG_I2O_LAN is not set
++# CONFIG_I2O_SCSI is not set
++# CONFIG_I2O_PROC is not set
++
++#
++# Network device support
++#
++CONFIG_NETDEVICES=y
++
++#
++# ARCnet devices
++#
++# CONFIG_ARCNET is not set
++# CONFIG_DUMMY is not set
++# CONFIG_BONDING is not set
++# CONFIG_EQUALIZER is not set
++# CONFIG_TUN is not set
++# CONFIG_ETHERTAP is not set
++
++#
++# Ethernet (10 or 100Mbit)
++#
++# CONFIG_NET_ETHERNET is not set
++
++#
++# Ethernet (1000 Mbit)
++#
++# CONFIG_ACENIC is not set
++# CONFIG_DL2K is not set
++# CONFIG_E1000 is not set
++# CONFIG_MYRI_SBUS is not set
++# CONFIG_NS83820 is not set
++# CONFIG_HAMACHI is not set
++# CONFIG_YELLOWFIN is not set
++# CONFIG_R8169 is not set
++# CONFIG_SK98LIN is not set
++# CONFIG_TIGON3 is not set
++# CONFIG_FDDI is not set
++# CONFIG_HIPPI is not set
++# CONFIG_PLIP is not set
++CONFIG_PPP=y
++# CONFIG_PPP_MULTILINK is not set
++# CONFIG_PPP_FILTER is not set
++# CONFIG_PPP_ASYNC is not set
++# CONFIG_PPP_SYNC_TTY is not set
++# CONFIG_PPP_DEFLATE is not set
++# CONFIG_PPP_BSDCOMP is not set
++# CONFIG_PPPOE is not set
++# CONFIG_SLIP is not set
++
++#
++# Wireless LAN (non-hamradio)
++#
++# CONFIG_NET_RADIO is not set
++
++#
++# Token Ring devices
++#
++# CONFIG_TR is not set
++# CONFIG_NET_FC is not set
++# CONFIG_RCPCI is not set
++# CONFIG_SHAPER is not set
++
++#
++# Wan interfaces
++#
++# CONFIG_WAN is not set
++
++#
++# Amateur Radio support
++#
++# CONFIG_HAMRADIO is not set
++
++#
++# IrDA (infrared) support
++#
++# CONFIG_IRDA is not set
++
++#
++# ISDN subsystem
++#
++# CONFIG_ISDN is not set
++
++#
++# Old CD-ROM drivers (not SCSI, not IDE)
++#
++# CONFIG_CD_NO_IDESCSI is not set
++
++#
++# Character devices
++#
++CONFIG_68328_SERIAL=y
++# CONFIG_68328_SERIAL_RTS_CTS is not set
++# CONFIG_68328_SERIAL_UART2 is not set
++# CONFIG_LEDMAN is not set
++# CONFIG_DS1302 is not set
++# CONFIG_VT is not set
++# CONFIG_SERIAL is not set
++# CONFIG_SERIAL_EXTENDED is not set
++# CONFIG_SERIAL_NONSTANDARD is not set
++# CONFIG_UNIX98_PTYS is not set
++
++#
++# I2C support
++#
++# CONFIG_I2C is not set
++
++#
++# Mice
++#
++# CONFIG_BUSMOUSE is not set
++# CONFIG_MOUSE is not set
++
++#
++# Joysticks
++#
++# CONFIG_INPUT_GAMEPORT is not set
++# CONFIG_INPUT_NS558 is not set
++# CONFIG_INPUT_LIGHTNING is not set
++# CONFIG_INPUT_PCIGAME is not set
++# CONFIG_INPUT_CS461X is not set
++# CONFIG_INPUT_EMU10K1 is not set
++# CONFIG_INPUT_SERIO is not set
++# CONFIG_INPUT_SERPORT is not set
++
++#
++# Joysticks
++#
++# CONFIG_INPUT_ANALOG is not set
++# CONFIG_INPUT_A3D is not set
++# CONFIG_INPUT_ADI is not set
++# CONFIG_INPUT_COBRA is not set
++# CONFIG_INPUT_GF2K is not set
++# CONFIG_INPUT_GRIP is not set
++# CONFIG_INPUT_INTERACT is not set
++# CONFIG_INPUT_TMDC is not set
++# CONFIG_INPUT_SIDEWINDER is not set
++# CONFIG_INPUT_IFORCE_USB is not set
++# CONFIG_INPUT_IFORCE_232 is not set
++# CONFIG_INPUT_WARRIOR is not set
++# CONFIG_INPUT_MAGELLAN is not set
++# CONFIG_INPUT_SPACEORB is not set
++# CONFIG_INPUT_SPACEBALL is not set
++# CONFIG_INPUT_STINGER is not set
++# CONFIG_INPUT_DB9 is not set
++# CONFIG_INPUT_GAMECON is not set
++# CONFIG_INPUT_TURBOGRAFX is not set
++# CONFIG_QIC02_TAPE is not set
++# CONFIG_IPMI_HANDLER is not set
++# CONFIG_IPMI_PANIC_EVENT is not set
++# CONFIG_IPMI_DEVICE_INTERFACE is not set
++# CONFIG_IPMI_KCS is not set
++# CONFIG_IPMI_WATCHDOG is not set
++
++#
++# Controller Area Network Cards/Chips
++#
++# CONFIG_CAN4LINUX is not set
++
++#
++# Watchdog Cards
++#
++# CONFIG_WATCHDOG is not set
++# CONFIG_SCx200_GPIO is not set
++# CONFIG_AMD_PM768 is not set
++# CONFIG_NVRAM is not set
++# CONFIG_RTC is not set
++# CONFIG_DTLK is not set
++# CONFIG_R3964 is not set
++# CONFIG_APPLICOM is not set
++
++#
++# Ftape, the floppy tape device driver
++#
++# CONFIG_FTAPE is not set
++# CONFIG_AGP is not set
++
++#
++# Direct Rendering Manager (XFree86 DRI support)
++#
++# CONFIG_DRM is not set
++
++#
++# File systems
++#
++# CONFIG_QUOTA is not set
++# CONFIG_QFMT_V2 is not set
++# CONFIG_AUTOFS_FS is not set
++# CONFIG_AUTOFS4_FS is not set
++# CONFIG_REISERFS_FS is not set
++# CONFIG_REISERFS_CHECK is not set
++# CONFIG_REISERFS_PROC_INFO is not set
++# CONFIG_ADFS_FS is not set
++# CONFIG_ADFS_FS_RW is not set
++# CONFIG_AFFS_FS is not set
++# CONFIG_HFS_FS is not set
++# CONFIG_HFSPLUS_FS is not set
++# CONFIG_BEFS_FS is not set
++# CONFIG_BEFS_DEBUG is not set
++# CONFIG_BFS_FS is not set
++# CONFIG_EXT3_FS is not set
++# CONFIG_JBD is not set
++# CONFIG_JBD_DEBUG is not set
++CONFIG_FAT_FS=y
++# CONFIG_MSDOS_FS is not set
++# CONFIG_UMSDOS_FS is not set
++# CONFIG_VFAT_FS is not set
++# CONFIG_EFS_FS is not set
++# CONFIG_JFFS_FS is not set
++# CONFIG_JFFS2_FS is not set
++# CONFIG_CRAMFS is not set
++# CONFIG_TMPFS is not set
++CONFIG_RAMFS=y
++# CONFIG_ISO9660_FS is not set
++# CONFIG_JOLIET is not set
++# CONFIG_ZISOFS is not set
++# CONFIG_JFS_FS is not set
++# CONFIG_JFS_DEBUG is not set
++# CONFIG_JFS_STATISTICS is not set
++# CONFIG_MINIX_FS is not set
++# CONFIG_VXFS_FS is not set
++# CONFIG_NTFS_FS is not set
++# CONFIG_NTFS_RW is not set
++# CONFIG_HPFS_FS is not set
++CONFIG_PROC_FS=y
++# CONFIG_DEVFS_FS is not set
++# CONFIG_DEVFS_MOUNT is not set
++# CONFIG_DEVFS_DEBUG is not set
++# CONFIG_DEVPTS_FS is not set
++# CONFIG_QNX4FS_FS is not set
++# CONFIG_QNX4FS_RW is not set
++CONFIG_ROMFS_FS=y
++CONFIG_EXT2_FS=y
++# CONFIG_SYSV_FS is not set
++# CONFIG_UDF_FS is not set
++# CONFIG_UDF_RW is not set
++# CONFIG_UFS_FS is not set
++# CONFIG_UFS_FS_WRITE is not set
++
++#
++# Network File Systems
++#
++# CONFIG_CODA_FS is not set
++# CONFIG_INTERMEZZO_FS is not set
++# CONFIG_NFS_FS is not set
++# CONFIG_NFS_V3 is not set
++# CONFIG_NFS_DIRECTIO is not set
++# CONFIG_ROOT_NFS is not set
++# CONFIG_NFSD is not set
++# CONFIG_NFSD_V3 is not set
++# CONFIG_NFSD_TCP is not set
++# CONFIG_SUNRPC is not set
++# CONFIG_LOCKD is not set
++# CONFIG_SMB_FS is not set
++# CONFIG_NCP_FS is not set
++# CONFIG_NCPFS_PACKET_SIGNING is not set
++# CONFIG_NCPFS_IOCTL_LOCKING is not set
++# CONFIG_NCPFS_STRONG is not set
++# CONFIG_NCPFS_NFS_NS is not set
++# CONFIG_NCPFS_OS2_NS is not set
++# CONFIG_NCPFS_SMALLDOS is not set
++# CONFIG_NCPFS_NLS is not set
++# CONFIG_NCPFS_EXTRAS is not set
++# CONFIG_ZISOFS_FS is not set
++
++#
++# Partition Types
++#
++# CONFIG_PARTITION_ADVANCED is not set
++# CONFIG_SMB_NLS is not set
++CONFIG_NLS=y
++
++#
++# Native Language Support
++#
++CONFIG_NLS_DEFAULT="iso8859-1"
++CONFIG_NLS_CODEPAGE_437=y
++# CONFIG_NLS_CODEPAGE_737 is not set
++# CONFIG_NLS_CODEPAGE_775 is not set
++# CONFIG_NLS_CODEPAGE_850 is not set
++# CONFIG_NLS_CODEPAGE_852 is not set
++# CONFIG_NLS_CODEPAGE_855 is not set
++# CONFIG_NLS_CODEPAGE_857 is not set
++# CONFIG_NLS_CODEPAGE_860 is not set
++# CONFIG_NLS_CODEPAGE_861 is not set
++# CONFIG_NLS_CODEPAGE_862 is not set
++# CONFIG_NLS_CODEPAGE_863 is not set
++# CONFIG_NLS_CODEPAGE_864 is not set
++# CONFIG_NLS_CODEPAGE_865 is not set
++# CONFIG_NLS_CODEPAGE_866 is not set
++# CONFIG_NLS_CODEPAGE_869 is not set
++# CONFIG_NLS_CODEPAGE_936 is not set
++# CONFIG_NLS_CODEPAGE_950 is not set
++# CONFIG_NLS_CODEPAGE_932 is not set
++# CONFIG_NLS_CODEPAGE_949 is not set
++# CONFIG_NLS_CODEPAGE_874 is not set
++# CONFIG_NLS_ISO8859_8 is not set
++# CONFIG_NLS_CODEPAGE_1250 is not set
++# CONFIG_NLS_CODEPAGE_1251 is not set
++# CONFIG_NLS_ISO8859_1 is not set
++# CONFIG_NLS_ISO8859_2 is not set
++# CONFIG_NLS_ISO8859_3 is not set
++# CONFIG_NLS_ISO8859_4 is not set
++# CONFIG_NLS_ISO8859_5 is not set
++# CONFIG_NLS_ISO8859_6 is not set
++# CONFIG_NLS_ISO8859_7 is not set
++# CONFIG_NLS_ISO8859_9 is not set
++# CONFIG_NLS_ISO8859_13 is not set
++# CONFIG_NLS_ISO8859_14 is not set
++# CONFIG_NLS_ISO8859_15 is not set
++# CONFIG_NLS_KOI8_R is not set
++# CONFIG_NLS_KOI8_U is not set
++# CONFIG_NLS_UTF8 is not set
++
++#
++# Sound
++#
++# CONFIG_SOUND is not set
++
++#
++# USB support
++#
++# CONFIG_USB is not set
++
++#
++# Support for USB gadgets
++#
++# CONFIG_USB_GADGET is not set
++
++#
++# Kernel hacking
++#
++CONFIG_FULLDEBUG=y
++# CONFIG_MAGIC_SYSRQ is not set
++# CONFIG_CONTIGUOUS_PAGE_ALLOC is not set
++# CONFIG_MEM_MAP is not set
++# CONFIG_PROFILE is not set
++# CONFIG_NO_KERNEL_MSG is not set
++# CONFIG_SMALL_TASKS is not set
++# CONFIG_BOOTPARAM is not set
++
++#
++# Cryptographic options
++#
++# CONFIG_CRYPTO is not set
++
++#
++# Library routines
++#
++# CONFIG_CRC32 is not set
++# CONFIG_ZLIB_INFLATE is not set
++# CONFIG_ZLIB_DEFLATE is not set
+--- ./vendors/Sony/Clie/config.uClibc.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/config.uClibc	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,130 @@
++#
++# Automatically generated make config: don't edit
++#
++# TARGET_alpha is not set
++# TARGET_arm is not set
++# TARGET_cris is not set
++# TARGET_e1 is not set
++# TARGET_h8300 is not set
++# TARGET_i386 is not set
++# TARGET_i960 is not set
++TARGET_m68k=y
++# TARGET_microblaze is not set
++# TARGET_mips is not set
++# TARGET_powerpc is not set
++# TARGET_sh is not set
++# TARGET_sparc is not set
++# TARGET_v850 is not set
++
++#
++# Target Architecture Features and Options
++#
++HAVE_ELF=y
++TARGET_ARCH="m68k"
++ARCH_HAS_NO_MMU=y
++# HAVE_NO_PIC is not set
++# ARCH_LITTLE_ENDIAN is not set
++ARCH_BIG_ENDIAN=y
++UCLIBC_HAS_FLOATS=y
++# HAS_FPU is not set
++UCLIBC_HAS_SOFT_FLOAT=y
++DO_C99_MATH=y
++WARNINGS="-Wall"
++KERNEL_SOURCE="$(ROOTDIR)/$(LINUXDIR)/."
++UCLIBC_UCLINUX_BROKEN_MUNMAP=y
++EXCLUDE_BRK=y
++C_SYMBOL_PREFIX=""
++HAVE_DOT_CONFIG=y
++
++#
++# General Library Settings
++#
++# DOPIC is not set
++HAVE_NO_SHARED=y
++ARCH_HAS_NO_LDSO=y
++# UCLIBC_PIE_SUPPORT is not set
++UCLIBC_CTOR_DTOR=y
++# UCLIBC_PROPOLICE is not set
++# UCLIBC_PROFILING is not set
++# HAS_NO_THREADS is not set
++# UCLIBC_HAS_THREADS is not set
++UCLIBC_HAS_LFS=y
++# MALLOC is not set
++MALLOC_SIMPLE=y
++# MALLOC_STANDARD is not set
++# MALLOC_GLIBC_COMPAT is not set
++UCLIBC_DYNAMIC_ATEXIT=y
++# HAS_SHADOW is not set
++UNIX98PTY_ONLY=y
++ASSUME_DEVPTS=y
++UCLIBC_HAS_TM_EXTENSIONS=y
++# UCLIBC_HAS_TZ_CACHING is not set
++UCLIBC_HAS_TZ_FILE=y
++UCLIBC_HAS_TZ_FILE_READ_MANY=y
++UCLIBC_TZ_FILE_PATH="/etc/TZ"
++
++#
++# Networking Support
++#
++# UCLIBC_HAS_IPV6 is not set
++UCLIBC_HAS_RPC=y
++UCLIBC_HAS_FULL_RPC=y
++
++#
++# String and Stdio Support
++#
++UCLIBC_HAS_CTYPE_TABLES=y
++UCLIBC_HAS_CTYPE_SIGNED=y
++UCLIBC_HAS_CTYPE_UNSAFE=y
++# UCLIBC_HAS_CTYPE_CHECKED is not set
++# UCLIBC_HAS_CTYPE_ENFORCED is not set
++# UCLIBC_HAS_WCHAR is not set
++# UCLIBC_HAS_LOCALE is not set
++# UCLIBC_HAS_HEXADECIMAL_FLOATS is not set
++# UCLIBC_HAS_GLIBC_CUSTOM_PRINTF is not set
++# USE_OLD_VFPRINTF is not set
++UCLIBC_PRINTF_SCANF_POSITIONAL_ARGS=9
++# UCLIBC_HAS_SCANF_GLIBC_A_FLAG is not set
++# UCLIBC_HAS_STDIO_BUFSIZ_NONE is not set
++UCLIBC_HAS_STDIO_BUFSIZ_256=y
++# UCLIBC_HAS_STDIO_BUFSIZ_512 is not set
++# UCLIBC_HAS_STDIO_BUFSIZ_1024 is not set
++# UCLIBC_HAS_STDIO_BUFSIZ_2048 is not set
++# UCLIBC_HAS_STDIO_BUFSIZ_4096 is not set
++# UCLIBC_HAS_STDIO_BUFSIZ_8192 is not set
++UCLIBC_HAS_STDIO_BUILTIN_BUFFER_NONE=y
++# UCLIBC_HAS_STDIO_BUILTIN_BUFFER_4 is not set
++# UCLIBC_HAS_STDIO_BUILTIN_BUFFER_8 is not set
++UCLIBC_HAS_STDIO_GETC_MACRO=y
++UCLIBC_HAS_STDIO_PUTC_MACRO=y
++UCLIBC_HAS_STDIO_AUTO_RW_TRANSITION=y
++# UCLIBC_HAS_FOPEN_LARGEFILE_MODE is not set
++# UCLIBC_HAS_FOPEN_EXCLUSIVE_MODE is not set
++# UCLIBC_HAS_GLIBC_CUSTOM_STREAMS is not set
++UCLIBC_HAS_PRINTF_M_SPEC=y
++UCLIBC_HAS_ERRNO_MESSAGES=y
++UCLIBC_HAS_SYS_ERRLIST=y
++UCLIBC_HAS_SIGNUM_MESSAGES=y
++# UCLIBC_HAS_SYS_SIGLIST is not set
++UCLIBC_HAS_GNU_GETOPT=y
++
++#
++# Big and Tall
++#
++UCLIBC_HAS_REGEX=y
++# UCLIBC_HAS_WORDEXP is not set
++# UCLIBC_HAS_FTW is not set
++UCLIBC_HAS_GLOB=y
++
++#
++# Library Installation Options
++#
++RUNTIME_PREFIX="/usr/$(TARGET_ARCH)-linux-uclibc/"
++DEVEL_PREFIX="/usr/$(TARGET_ARCH)-linux-uclibc"
++
++#
++# uClibc development/debugging options
++#
++# DODEBUG is not set
++# DOASSERTS is not set
++# UCLIBC_MJN3_ONLY is not set
+--- ./vendors/Sony/Clie/config.vendor.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/config.vendor	2004-09-10 23:46:15.000000000 -0600
+@@ -0,0 +1,653 @@
++#
++# Automatically generated make config: don't edit
++#
++
++#
++# Core Applications
++#
++CONFIG_USER_INIT_INIT=y
++# CONFIG_USER_INIT_CONSOLE_SH is not set
++# CONFIG_USER_INIT_RUN_FIREWALL is not set
++# CONFIG_USER_SASH_SH is not set
++CONFIG_USER_SH_SH=y
++# CONFIG_USER_NWSH_SH is not set
++# CONFIG_USER_BASH_BASH is not set
++# CONFIG_USER_OTHER_SH is not set
++# CONFIG_USER_SASH_REBOOT is not set
++# CONFIG_USER_SASH_REBOOT_SNAPGEAR is not set
++CONFIG_USER_BUSYBOX_KILLALL=y
++# CONFIG_USER_SASH_SHUTDOWN is not set
++CONFIG_USER_INIT_EXPAND=y
++# CONFIG_USER_INIT_EXPAND_NOZEROES is not set
++# CONFIG_USER_VERSION_VERSION is not set
++CONFIG_USER_LOGIN_LOGIN=y
++CONFIG_USER_OLD_PASSWORDS=y
++# CONFIG_USER_ONLY_ROOT is not set
++CONFIG_USER_AGETTY_AGETTY=y
++# CONFIG_USER_GETTYD_GETTYD is not set
++CONFIG_USER_LOGIN_PASSWD=y
++# CONFIG_USER_CRON_CRON is not set
++
++#
++# Real Time Clock
++#
++# CONFIG_USER_HWCLOCK_HWCLOCK is not set
++# CONFIG_USER_RTC_M41T11 is not set
++# CONFIG_USER_RTC_DS1302 is not set
++
++#
++# Vixie-cron
++#
++# CONFIG_USER_VIXIECRON_CRON is not set
++# CONFIG_USER_VIXIECRON_CRONTAB is not set
++
++#
++# at
++#
++# CONFIG_USER_AT_AT is not set
++# CONFIG_USER_AT_ATD is not set
++# CONFIG_USER_AT_ATRUN is not set
++
++#
++# Library Configuration
++#
++
++#
++# Force build (Normally built when required)
++#
++# CONFIG_LIB_LIBAES_FORCE is not set
++# CONFIG_LIB_LIBDES_FORCE is not set
++# CONFIG_LIB_LIBSSL_FORCE is not set
++# CONFIG_LIB_LIBGMP_FORCE is not set
++# CONFIG_LIB_LIBG_FORCE is not set
++# CONFIG_LIB_LIBLDAP_FORCE is not set
++# CONFIG_LIB_LIBPAM_FORCE is not set
++# CONFIG_LIB_LIBPCAP_FORCE is not set
++# CONFIG_LIB_ZLIB_FORCE is not set
++# CONFIG_LIB_LIBATM_FORCE is not set
++# CONFIG_LIB_LIBPNG_FORCE is not set
++# CONFIG_LIB_LIBJPEG_FORCE is not set
++# CONFIG_LIB_NCURSES_FORCE is not set
++
++#
++# Library Configuration
++#
++# CONFIG_LIB_UC_LIBC_TIMEZONE is not set
++
++#
++# Flash Tools
++#
++# CONFIG_USER_FLASHW_FLASHW is not set
++# CONFIG_USER_NETFLASH_NETFLASH is not set
++# CONFIG_USER_RECOVER_STATIC_TFTP is not set
++# CONFIG_USER_RECOVER_RECOVER is not set
++# CONFIG_USER_BOOTTOOLS_FLASHLOADER is not set
++# CONFIG_USER_BOOTTOOLS_HIMEMLOADER is not set
++
++#
++# MTD utils
++#
++# CONFIG_USER_MTDUTILS is not set
++# CONFIG_USER_MTDUTILS_ERASE is not set
++# CONFIG_USER_MTDUTILS_ERASEALL is not set
++# CONFIG_USER_MTDUTILS_FTL_CHECK is not set
++# CONFIG_USER_MTDUTILS_FTL_FORMAT is not set
++# CONFIG_USER_MTDUTILS_MKFSJFFS is not set
++# CONFIG_USER_MTDUTILS_MKFSJFFS2 is not set
++# CONFIG_USER_MTDUTILS_NFTLDUMP is not set
++# CONFIG_USER_MTDUTILS_NFTL_FORMAT is not set
++# CONFIG_USER_MTDUTILS_NANDDUMP is not set
++# CONFIG_USER_MTDUTILS_NANDTEST is not set
++# CONFIG_USER_MTDUTILS_NANDWRITE is not set
++# CONFIG_USER_MTDUTILS_DOC_LOADBIOS is not set
++# CONFIG_USER_MTDUTILS_DOC_LOADIPL is not set
++
++#
++# Filesystem Applications
++#
++# CONFIG_USER_FLATFSD_FLATFSD is not set
++# CONFIG_USER_MOUNT_MOUNT is not set
++# CONFIG_USER_MOUNT_UMOUNT is not set
++# CONFIG_USER_FDISK_FDISK is not set
++# CONFIG_USER_FDISK_SFDISK is not set
++
++#
++# EXT2
++#
++# CONFIG_USER_E2FSPROGS_E2FSCK_E2FSCK is not set
++# CONFIG_USER_E2FSPROGS_MISC_MKE2FS is not set
++# CONFIG_USER_E2FSPROGS_MISC_BADBLOCKS is not set
++# CONFIG_USER_E2FSPROGS_MISC_CHATTR is not set
++# CONFIG_USER_E2FSPROGS_MISC_DUMPE2FS is not set
++# CONFIG_USER_E2FSPROGS_MISC_E2LABEL is not set
++# CONFIG_USER_E2FSPROGS_MISC_FSCK is not set
++# CONFIG_USER_E2FSPROGS_MISC_LSATTR is not set
++# CONFIG_USER_E2FSPROGS_MISC_MKLOST_FOUND is not set
++# CONFIG_USER_E2FSPROGS_MISC_TUNE2FS is not set
++# CONFIG_USER_E2FSPROGS_MISC_UUIDGEN is not set
++
++#
++# RESIERFS
++#
++# CONFIG_USER_REISERFSPROGS is not set
++# CONFIG_USER_REISERFSPROGS_DEBUGRESIERFS is not set
++# CONFIG_USER_REISERFSPROGS_MKREISERFS is not set
++# CONFIG_USER_REISERFSPROGS_REISERFSCK is not set
++# CONFIG_USER_REISERFSPROGS_RESIZE_REISERFS is not set
++# CONFIG_USER_REISERFSPROGS_UNPACK is not set
++
++#
++# SAMBA
++#
++# CONFIG_USER_SAMBA is not set
++# CONFIG_USER_SAMBA_SMBD is not set
++# CONFIG_USER_SAMBA_NMBD is not set
++# CONFIG_USER_SAMBA_SMBMOUNT is not set
++# CONFIG_USER_SAMBA_SMBUMOUNT is not set
++
++#
++# SMBFS
++#
++# CONFIG_USER_SMBMOUNT_SMBMOUNT is not set
++# CONFIG_USER_SMBMOUNT_SMBUMOUNT is not set
++
++#
++# CRAMFS
++#
++# CONFIG_USER_CRAMFS_CRAMFSCK is not set
++# CONFIG_USER_CRAMFS_MKCRAMFS is not set
++
++#
++# Network Applications
++#
++# CONFIG_USER_ROUTE_ARP is not set
++# CONFIG_USER_FNORD_HTTPD is not set
++CONFIG_USER_BOA_SRC_BOA=y
++# CONFIG_USER_BOA_WITH_SSL is not set
++# CONFIG_USER_BPALOGIN_BPALOGIN is not set
++# CONFIG_USER_BR2684CTL_BR2684CTL is not set
++# CONFIG_USER_BRCFG_BRCFG is not set
++# CONFIG_USER_BRCTL_BRCTL is not set
++# CONFIG_USER_DHCPCD_DHCPCD is not set
++# CONFIG_USER_DHCPCD_NEW_DHCPCD is not set
++# CONFIG_USER_DHCPD_DHCPD is not set
++# CONFIG_USER_DHCP_ISC_SERVER_DHCPD is not set
++# CONFIG_USER_DHCP_ISC_CLIENT_DHCLIENT is not set
++# CONFIG_USER_DHCP_ISC_RELAY_DHCRELAY is not set
++# CONFIG_USER_DIALD_DIALD is not set
++# CONFIG_USER_DISCARD_DISCARD is not set
++# CONFIG_USER_DNSMASQ_DNSMASQ is not set
++# CONFIG_USER_ETHATTACH_ETHATTACH is not set
++# CONFIG_USER_EZIPUPDATE_EZIPUPDATE is not set
++# CONFIG_USER_FTP_FTP_FTP is not set
++# CONFIG_USER_FTPD_FTPD is not set
++# CONFIG_USER_FREESWAN is not set
++# CONFIG_USER_HTTPD_HTTPD is not set
++# CONFIG_USER_IFATTACH_IFATTACH is not set
++# CONFIG_USER_ROUTE_IFCONFIG is not set
++CONFIG_USER_INETD_INETD=y
++# CONFIG_USER_IPCHAINS_IPCHAINS is not set
++# CONFIG_USER_IPFWADM_IPFWADM is not set
++# CONFIG_USER_IPMASQADM_IPMASQADM is not set
++# CONFIG_USER_IPPORTFW_IPPORTFW is not set
++# CONFIG_USER_IPREDIR_IPREDIR is not set
++# CONFIG_USER_IPROUTE2 is not set
++CONFIG_USER_IPTABLES_IPTABLES=y
++# CONFIG_USER_KENDIN_CONFIG is not set
++# CONFIG_USER_KLAXON_KLAXON is not set
++# CONFIG_USER_L2TPD_L2TPD is not set
++# CONFIG_USER_LOATTACH_LOATTACH is not set
++# CONFIG_USER_SMTP_SMTPCLIENT is not set
++# CONFIG_USER_MAIL_MAIL_IP is not set
++# CONFIG_USER_MINI_HTTPD_MINI_HTTPD is not set
++# CONFIG_USER_MSNTP_MSNTP is not set
++# CONFIG_USER_NESSUS_NASL is not set
++# CONFIG_USER_ROUTE_NETSTAT is not set
++# CONFIG_USER_NETSTAT_NAT_NETSTAT_NAT is not set
++# CONFIG_USER_ROUTE_MIITOOL is not set
++# CONFIG_USER_NTPD_NTPD is not set
++# CONFIG_USER_NTPD_NTPDATE is not set
++# CONFIG_USER_NTPD_NTPQ is not set
++# CONFIG_USER_OPENSSL_APPS is not set
++# CONFIG_USER_PING_PING is not set
++# CONFIG_USER_PLUG_PLUG is not set
++CONFIG_USER_PORTMAP_PORTMAP=y
++# CONFIG_USER_PPPD_PPPD_PPPD is not set
++# CONFIG_USER_PPTPD_PPTPCTRL is not set
++# CONFIG_USER_PPTPD_PPTPD is not set
++# CONFIG_USER_PPTP_CLIENT_PPTP is not set
++# CONFIG_USER_PPTP_CLIENT_PPTP_CALLMGR is not set
++# CONFIG_USER_RDATE_RDATE is not set
++# CONFIG_USER_ROUTE_ROUTE is not set
++# CONFIG_USER_ROUTED_ROUTED is not set
++# CONFIG_USER_RP_PPPOE_PPPOE is not set
++# CONFIG_USER_RP_PPPOE_PPPOE_SERVER is not set
++# CONFIG_USER_SETHDLC_SETHDLC is not set
++# CONFIG_USER_SLATTACH_SLATTACH is not set
++# CONFIG_USER_SNMPD_SNMPD is not set
++# CONFIG_USER_STUNNEL_STUNNEL is not set
++# CONFIG_USER_SSLWRAP_SSLWRAP is not set
++# CONFIG_USER_SQUID_SQUID is not set
++# CONFIG_USER_SSH_SSH is not set
++# CONFIG_USER_SSH_SSHD is not set
++# CONFIG_USER_SSH_SSHKEYGEN is not set
++# CONFIG_USER_STP_STP is not set
++# CONFIG_USER_TCPWRAP_TCPD is not set
++# CONFIG_USER_TCPBLAST_TCPBLAST is not set
++CONFIG_USER_TCPDUMP_TCPDUMP=y
++CONFIG_LIB_LIBPCAP=y
++CONFIG_USER_TELNETD_TELNETD=y
++# CONFIG_USER_TELNET_TELNET is not set
++# CONFIG_USER_TFTP_TFTP is not set
++# CONFIG_USER_TFTPD_TFTPD is not set
++# CONFIG_USER_THTTPD_THTTPD is not set
++# CONFIG_USER_TRACEROUTE_TRACEROUTE is not set
++# CONFIG_USER_UCDSNMP_SNMPD is not set
++# CONFIG_USER_VCONFIG_VCONFIG is not set
++# CONFIG_USER_VPNLED_VPNLED is not set
++# CONFIG_USER_WGET is not set
++# CONFIG_USER_ZEBRA_ZEBRA_ZEBRA is not set
++
++#
++# Net-tools
++#
++# CONFIG_USER_NET_TOOLS_ARP is not set
++# CONFIG_USER_NET_TOOLS_HOSTNAME is not set
++# CONFIG_USER_NET_TOOLS_IFCONFIG is not set
++# CONFIG_USER_NET_TOOLS_NAMEIF is not set
++# CONFIG_USER_NET_TOOLS_NETSTAT is not set
++# CONFIG_USER_NET_TOOLS_PLIPCONFIG is not set
++# CONFIG_USER_NET_TOOLS_RARP is not set
++# CONFIG_USER_NET_TOOLS_ROUTE is not set
++# CONFIG_USER_NET_TOOLS_SLATTACH is not set
++# CONFIG_USER_NET_TOOLS_MII_TOOL is not set
++
++#
++# Wireless-tools
++#
++# CONFIG_USER_WIRELESS_TOOLS is not set
++# CONFIG_USER_HOSTAP_HOSTAP is not set
++# CONFIG_USER_WLAN_NG is not set
++
++#
++# Miscellaneous Applications
++#
++# CONFIG_USER_LANG_A60 is not set
++# CONFIG_USER_CAL_CAL is not set
++# CONFIG_USER_CHAT_CHAT is not set
++# CONFIG_USER_CKSUM_CKSUM is not set
++# CONFIG_USER_CLOCK_CLOCK is not set
++# CONFIG_USER_CPU_CPU is not set
++# CONFIG_USER_CAL_DATE is not set
++# CONFIG_USER_DHRYSTONE_DHRYSTONE is not set
++# CONFIG_USER_DE2TSCAL_DE2TSCAL is not set
++# CONFIG_USER_FROB_LED_FROB_LED is not set
++# CONFIG_USER_GDBSERVER_GDBREPLAY is not set
++# CONFIG_USER_GDBSERVER_GDBSERVER is not set
++# CONFIG_USER_HD_HD is not set
++# CONFIG_USER_LCD_LCD is not set
++# CONFIG_USER_LEDCON_LEDCON is not set
++# CONFIG_USER_LILO_LILO is not set
++# CONFIG_USER_LISSA_LISSA is not set
++# CONFIG_USER_USBCBI_USBCBI is not set
++# CONFIG_USER_USBISO_USBISO is not set
++# CONFIG_USER_MATH_TEST is not set
++# CONFIG_USER_MAWK_AWK is not set
++# CONFIG_USER_MYSQL is not set
++# CONFIG_USER_NULL_NULL is not set
++# CONFIG_USER_PALMBOT_PALMBOT is not set
++# CONFIG_USER_PCMCIA_CS is not set
++# CONFIG_USER_PERL_PERL is not set
++# CONFIG_USER_PYTHON_PYTHON is not set
++# CONFIG_USER_READPROFILE_READPROFILE is not set
++# CONFIG_USER_ROOTLOADER_ROOTLOADER is not set
++CONFIG_USER_SETSERIAL_SETSERIAL=y
++# CONFIG_USER_TRIPWIRE_SIGGEN is not set
++# CONFIG_USER_STRACE_STRACE is not set
++# CONFIG_USER_STTY_STTY is not set
++# CONFIG_USER_TCSH_TCSH is not set
++# CONFIG_USER_TINYTCL_TCLSH is not set
++# CONFIG_USER_THREADDEMOS_THREADDEMOS is not set
++CONFIG_USER_TIP_TIP=y
++# CONFIG_USER_TRIPWIRE_TRIPWIRE is not set
++# CONFIG_USER_LRZSZ_LRZSZ is not set
++
++#
++# LIRC
++#
++# CONFIG_USER_LIRC is not set
++# CONFIG_USER_LIRC_LIRCD is not set
++# CONFIG_USER_LIRC_IRRECORD is not set
++# CONFIG_USER_LIRC_LIRCMD is not set
++# CONFIG_USER_LIRC_IREXEC is not set
++# CONFIG_USER_LIRC_IRW is not set
++# CONFIG_USER_LIRC_MODE2 is not set
++
++#
++# Editors
++#
++# CONFIG_USER_LEVEE_VI is not set
++# CONFIG_USER_ELVISTINY_VI is not set
++
++#
++# Audio tools
++#
++# CONFIG_USER_MP3PLAY_MP3PLAY is not set
++# CONFIG_USER_OGGPLAY_OGG123 is not set
++# CONFIG_USER_OGGPLAY_EXAMPLE is not set
++# CONFIG_USER_MUSICBOX_MUSICBOX is not set
++# CONFIG_USER_PLAY_PLAY is not set
++# CONFIG_USER_PLAY_TONE is not set
++# CONFIG_USER_VPLAY_VPLAY is not set
++# CONFIG_USER_VPLAY_VREC is not set
++# CONFIG_USER_VPLAY_MIXER is not set
++# CONFIG_USER_PLAYRT_PLAYRT is not set
++
++#
++# Video tools
++#
++# CONFIG_USER_W3CAM_VIDCAT is not set
++# CONFIG_USER_W3CAM_W3CAMD is not set
++
++#
++# Fileutils tools
++#
++# CONFIG_USER_FILEUTILS_CAT is not set
++# CONFIG_USER_FILEUTILS_CHGRP is not set
++# CONFIG_USER_FILEUTILS_CHMOD is not set
++# CONFIG_USER_FILEUTILS_CHOWN is not set
++# CONFIG_USER_FILEUTILS_CMP is not set
++# CONFIG_USER_FILEUTILS_CP is not set
++# CONFIG_USER_FILEUTILS_DD is not set
++# CONFIG_USER_FILEUTILS_GREP is not set
++# CONFIG_USER_FILEUTILS_L is not set
++# CONFIG_USER_FILEUTILS_LN is not set
++# CONFIG_USER_FILEUTILS_LS is not set
++# CONFIG_USER_FILEUTILS_MKDIR is not set
++# CONFIG_USER_FILEUTILS_MKFIFO is not set
++# CONFIG_USER_FILEUTILS_MKNOD is not set
++# CONFIG_USER_FILEUTILS_MORE is not set
++# CONFIG_USER_FILEUTILS_MV is not set
++# CONFIG_USER_FILEUTILS_RM is not set
++# CONFIG_USER_FILEUTILS_RMDIR is not set
++# CONFIG_USER_FILEUTILS_SYNC is not set
++# CONFIG_USER_FILEUTILS_TOUCH is not set
++
++#
++# Shutils tools
++#
++# CONFIG_USER_SHUTILS_BASENAME is not set
++# CONFIG_USER_SHUTILS_DATE is not set
++# CONFIG_USER_SHUTILS_DIRNAME is not set
++# CONFIG_USER_SHUTILS_ECHO is not set
++# CONFIG_USER_SHUTILS_FALSE is not set
++# CONFIG_USER_SHUTILS_LOGNAME is not set
++# CONFIG_USER_SHUTILS_PRINTENV is not set
++# CONFIG_USER_SHUTILS_PWD is not set
++# CONFIG_USER_SHUTILS_TRUE is not set
++# CONFIG_USER_SHUTILS_UNAME is not set
++# CONFIG_USER_SHUTILS_WHICH is not set
++# CONFIG_USER_SHUTILS_WHOAMI is not set
++# CONFIG_USER_SHUTILS_YES is not set
++
++#
++# Sysutils tools
++#
++# CONFIG_USER_SYSUTILS_REBOOT is not set
++# CONFIG_USER_SYSUTILS_SHUTDOWN is not set
++# CONFIG_USER_SYSUTILS_DF is not set
++# CONFIG_USER_SYSUTILS_FREE is not set
++# CONFIG_USER_SYSUTILS_HOSTNAME is not set
++# CONFIG_USER_SYSUTILS_KILL is not set
++# CONFIG_USER_SYSUTILS_PS is not set
++
++#
++# Procps tools
++#
++# CONFIG_USER_PROCPS_FREE is not set
++# CONFIG_USER_PROCPS_KILL is not set
++# CONFIG_USER_PROCPS_PGREP is not set
++# CONFIG_USER_PROCPS_PKILL is not set
++# CONFIG_USER_PROCPS_PS is not set
++# CONFIG_USER_PROCPS_SNICE is not set
++# CONFIG_USER_PROCPS_SYSCTL is not set
++# CONFIG_USER_PROCPS_TLOAD is not set
++# CONFIG_USER_PROCPS_TOP is not set
++# CONFIG_USER_PROCPS_UPTIME is not set
++# CONFIG_USER_PROCPS_VMSTAT is not set
++# CONFIG_USER_PROCPS_W is not set
++# CONFIG_USER_PROCPS_WATCH is not set
++
++#
++# PCI utilities
++#
++# CONFIG_USER_PCIUTILS_LSPCI is not set
++# CONFIG_USER_PCIUTILS_SETPCI is not set
++
++#
++# BusyBox
++#
++CONFIG_USER_BUSYBOX_BUSYBOX=y
++
++#
++# Applets
++#
++# CONFIG_USER_BUSYBOX_ADJTIMEX is not set
++# CONFIG_USER_BUSYBOX_AR is not set
++CONFIG_USER_BUSYBOX_BASENAME=y
++CONFIG_USER_BUSYBOX_CAT=y
++# CONFIG_USER_BUSYBOX_CHGRP is not set
++CONFIG_USER_BUSYBOX_CHMOD=y
++CONFIG_USER_BUSYBOX_CHOWN=y
++CONFIG_USER_BUSYBOX_CHROOT=y
++CONFIG_USER_BUSYBOX_CLEAR=y
++# CONFIG_USER_BUSYBOX_CMP is not set
++CONFIG_USER_BUSYBOX_CP=y
++CONFIG_USER_BUSYBOX_CUT=y
++CONFIG_USER_BUSYBOX_DATE=y
++# CONFIG_USER_BUSYBOX_DC is not set
++CONFIG_USER_BUSYBOX_DD=y
++CONFIG_USER_BUSYBOX_DF=y
++# CONFIG_USER_BUSYBOX_DIRNAME is not set
++CONFIG_USER_BUSYBOX_DMESG=y
++# CONFIG_USER_BUSYBOX_DUTMP is not set
++# CONFIG_USER_BUSYBOX_DU is not set
++CONFIG_USER_BUSYBOX_ECHO=y
++# CONFIG_USER_BUSYBOX_ENV is not set
++# CONFIG_USER_BUSYBOX_EXPR is not set
++# CONFIG_USER_BUSYBOX_FIND is not set
++CONFIG_USER_BUSYBOX_FREE=y
++# CONFIG_USER_BUSYBOX_FREERAMDISK is not set
++# CONFIG_USER_BUSYBOX_FSCK_MINIX is not set
++# CONFIG_USER_BUSYBOX_GETOPT is not set
++CONFIG_USER_BUSYBOX_GREP=y
++CONFIG_USER_BUSYBOX_GREP_CONTEXT=y
++# CONFIG_USER_BUSYBOX_GREP_EGREP_ALIAS is not set
++# CONFIG_USER_BUSYBOX_GUNZIP is not set
++# CONFIG_USER_BUSYBOX_GZIP is not set
++# CONFIG_USER_BUSYBOX_HALT is not set
++# CONFIG_USER_BUSYBOX_HEAD is not set
++CONFIG_USER_BUSYBOX_HOSTNAME=y
++# CONFIG_USER_BUSYBOX_ID is not set
++CONFIG_USER_BUSYBOX_IFCONFIG=y
++CONFIG_USER_BUSYBOX_IFCONFIG_STATUS=y
++# CONFIG_USER_BUSYBOX_IFCONFIG_SLIP is not set
++CONFIG_USER_BUSYBOX_IFCONFIG_HW=y
++CONFIG_USER_BUSYBOX_IFCONFIG_MEMSTART_IOADDR_IRQ=y
++# CONFIG_USER_BUSYBOX_INIT is not set
++# CONFIG_USER_BUSYBOX_INSMOD is not set
++CONFIG_USER_BUSYBOX_KILL=y
++CONFIG_USER_BUSYBOX_KILLALL=y
++# CONFIG_USER_BUSYBOX_KLOGD is not set
++# CONFIG_USER_BUSYBOX_LENGTH is not set
++CONFIG_USER_BUSYBOX_LN=y
++# CONFIG_USER_BUSYBOX_LOGGER is not set
++# CONFIG_USER_BUSYBOX_LOGNAME is not set
++CONFIG_USER_BUSYBOX_LS=y
++# CONFIG_USER_BUSYBOX_LS_USERNAME is not set
++# CONFIG_USER_BUSYBOX_LS_TIMESTAMPS is not set
++# CONFIG_USER_BUSYBOX_LS_FILETYPES is not set
++# CONFIG_USER_BUSYBOX_LS_SORTFILES is not set
++# CONFIG_USER_BUSYBOX_LS_RECURSIVE is not set
++# CONFIG_USER_BUSYBOX_LS_FOLLOWLINKS is not set
++# CONFIG_USER_BUSYBOX_LSMOD is not set
++# CONFIG_USER_BUSYBOX_MAKEDEVS is not set
++CONFIG_USER_BUSYBOX_MD5SUM=y
++CONFIG_USER_BUSYBOX_MKDIR=y
++# CONFIG_USER_BUSYBOX_MKFS_MINIX is not set
++CONFIG_USER_BUSYBOX_MKNOD=y
++# CONFIG_USER_BUSYBOX_MKTEMP is not set
++# CONFIG_USER_BUSYBOX_MODPROBE is not set
++# CONFIG_USER_BUSYBOX_MORE is not set
++CONFIG_USER_BUSYBOX_MOUNT=y
++CONFIG_USER_BUSYBOX_MOUNT_LOOP=y
++# CONFIG_USER_BUSYBOX_MTAB_SUPPORT is not set
++CONFIG_USER_BUSYBOX_NFSMOUNT=y
++CONFIG_USER_BUSYBOX_MV=y
++# CONFIG_USER_BUSYBOX_NC is not set
++# CONFIG_USER_BUSYBOX_NSLOOKUP is not set
++# CONFIG_USER_BUSYBOX_PIDOF is not set
++CONFIG_USER_BUSYBOX_PING=y
++CONFIG_USER_BUSYBOX_FANCY_PING=y
++# CONFIG_USER_BUSYBOX_PIVOT_ROOT is not set
++# CONFIG_USER_BUSYBOX_POWEROFF is not set
++# CONFIG_USER_BUSYBOX_PRINTF is not set
++CONFIG_USER_BUSYBOX_PS=y
++CONFIG_USER_BUSYBOX_PWD=y
++# CONFIG_USER_BUSYBOX_RDATE is not set
++# CONFIG_USER_BUSYBOX_READLINK is not set
++# CONFIG_USER_BUSYBOX_REBOOT is not set
++# CONFIG_USER_BUSYBOX_RENICE is not set
++CONFIG_USER_BUSYBOX_RESET=y
++CONFIG_USER_BUSYBOX_RM=y
++CONFIG_USER_BUSYBOX_RMDIR=y
++# CONFIG_USER_BUSYBOX_RMMOD is not set
++CONFIG_USER_BUSYBOX_ROUTE=y
++# CONFIG_USER_BUSYBOX_RPM2CPIO is not set
++# CONFIG_USER_BUSYBOX_SED is not set
++CONFIG_USER_BUSYBOX_SHELL=y
++# CONFIG_USER_BUSYBOX_ASH is not set
++# CONFIG_USER_BUSYBOX_SH_IS_ASH is not set
++# CONFIG_USER_BUSYBOX_HUSH is not set
++# CONFIG_USER_BUSYBOX_SH_IS_HUSH is not set
++# CONFIG_USER_BUSYBOX_LASH is not set
++# CONFIG_USER_BUSYBOX_SH_IS_LASH is not set
++CONFIG_USER_BUSYBOX_MSH=y
++CONFIG_USER_BUSYBOX_SH_IS_MSH=y
++CONFIG_USER_BUSYBOX_COMMAND_EDITING=y
++CONFIG_USER_BUSYBOX_TAB_COMPLETION=y
++# CONFIG_USER_BUSYBOX_USERNAME_COMPLETION is not set
++CONFIG_USER_BUSYBOX_SH_STANDALONE_SHELL=y
++CONFIG_USER_BUSYBOX_SH_APPLETS_ALWAYS_WIN=y
++# CONFIG_USER_BUSYBOX_SH_FANCY_PROMPT is not set
++CONFIG_USER_BUSYBOX_SLEEP=y
++# CONFIG_USER_BUSYBOX_SORT is not set
++# CONFIG_USER_BUSYBOX_STTY is not set
++# CONFIG_USER_BUSYBOX_SYNC is not set
++CONFIG_USER_BUSYBOX_SYSLOGD=y
++# CONFIG_USER_BUSYBOX_REMOTE_LOG is not set
++# CONFIG_USER_BUSYBOX_IPC_SYSLOG is not set
++CONFIG_USER_BUSYBOX_TAIL=y
++# CONFIG_USER_BUSYBOX_FANCY_TAIL is not set
++# CONFIG_USER_BUSYBOX_TAR is not set
++# CONFIG_USER_BUSYBOX_TEE is not set
++CONFIG_USER_BUSYBOX_TELNET=y
++# CONFIG_USER_BUSYBOX_TELNET_TTYPE is not set
++# CONFIG_USER_BUSYBOX_TEST is not set
++CONFIG_USER_BUSYBOX_TFTP=y
++# CONFIG_USER_BUSYBOX_TFTP_PUT is not set
++# CONFIG_USER_BUSYBOX_TFTP_GET is not set
++CONFIG_USER_BUSYBOX_TOUCH=y
++# CONFIG_USER_BUSYBOX_TR is not set
++# CONFIG_USER_BUSYBOX_TRACEROUTE is not set
++CONFIG_USER_BUSYBOX_TRUE_FALSE=y
++# CONFIG_USER_BUSYBOX_TTY is not set
++CONFIG_USER_BUSYBOX_UMOUNT=y
++# CONFIG_USER_BUSYBOX_MOUNT_FORCE is not set
++CONFIG_USER_BUSYBOX_UNAME=y
++# CONFIG_USER_BUSYBOX_UNIQ is not set
++# CONFIG_USER_BUSYBOX_UNIX2DOS is not set
++# CONFIG_USER_BUSYBOX_UPTIME is not set
++# CONFIG_USER_BUSYBOX_USLEEP is not set
++# CONFIG_USER_BUSYBOX_UUDECODE is not set
++# CONFIG_USER_BUSYBOX_UUENCODE is not set
++CONFIG_USER_BUSYBOX_VI=y
++CONFIG_USER_BUSYBOX_VI_COLON=y
++CONFIG_USER_BUSYBOX_VI_YANKMARK=y
++CONFIG_USER_BUSYBOX_VI_SEARCH=y
++# CONFIG_USER_BUSYBOX_VI_USE_SIGNALS is not set
++# CONFIG_USER_BUSYBOX_VI_DOT_CMD is not set
++# CONFIG_USER_BUSYBOX_VI_READONLY is not set
++# CONFIG_USER_BUSYBOX_VI_SETOPTS is not set
++# CONFIG_USER_BUSYBOX_VI_SET is not set
++# CONFIG_USER_BUSYBOX_VI_WIN_RESIZE is not set
++CONFIG_USER_BUSYBOX_WATCHDOG=y
++# CONFIG_USER_BUSYBOX_WC is not set
++CONFIG_USER_BUSYBOX_WGET=y
++# CONFIG_USER_BUSYBOX_WGET_STATUSBAR is not set
++# CONFIG_USER_BUSYBOX_WGET_AUTHENTICATION is not set
++# CONFIG_USER_BUSYBOX_WHICH is not set
++# CONFIG_USER_BUSYBOX_WHOAMI is not set
++# CONFIG_USER_BUSYBOX_XARGS is not set
++CONFIG_USER_BUSYBOX_YES=y
++
++#
++# other features
++#
++# CONFIG_USER_BUSYBOX_VERBOSE_USAGE is not set
++# CONFIG_USER_BUSYBOX_AUTOWIDTH is not set
++# CONFIG_USER_BUSYBOX_NEW_MODULE_INTERFACE is not set
++# CONFIG_USER_BUSYBOX_OLD_MODULE_INTERFACE is not set
++# CONFIG_USER_BUSYBOX_INSMOD_VERSION_CHECKING is not set
++# CONFIG_USER_BUSYBOX_HUMAN_READABLE is not set
++
++#
++# Tinylogin
++#
++# CONFIG_USER_TINYLOGIN_TINYLOGIN is not set
++
++#
++# MicroWindows
++#
++# CONFIG_USER_MICROWIN is not set
++
++#
++# Games
++#
++# CONFIG_USER_GAMES_ADVENT4 is not set
++# CONFIG_USER_GAMES_DUNGEON is not set
++# CONFIG_USER_GAMES_RUBIK is not set
++
++#
++# Miscellaneous Configuration
++#
++# CONFIG_USER_RAMIMAGE_NONE is not set
++# CONFIG_USER_RAMIMAGE_RAMFS64 is not set
++# CONFIG_USER_RAMIMAGE_RAMFS128 is not set
++CONFIG_USER_RAMIMAGE_RAMFS256=y
++# CONFIG_USER_RAMIMAGE_RAMFS512 is not set
++# CONFIG_USER_RAMIMAGE_RAMFS1024 is not set
++# CONFIG_USER_RAMIMAGE_RAMFS2048 is not set
++# CONFIG_USER_RAMIMAGE_RAMFS8192 is not set
++CONFIG_USER_CGI_GENERIC=y
++# CONFIG_USER_CGIHTML is not set
++# CONFIG_USER_DEMO_BUTTON is not set
++# CONFIG_USER_DEMO_LATCH is not set
++# CONFIG_USER_DEMO_MORSE is not set
++# CONFIG_USER_DEMO_R2100 is not set
++
++#
++# Debug Builds
++#
++# CONFIG_LIB_DEBUG is not set
++# CONFIG_USER_DEBUG is not set
++
++#
++# Debug tools
++#
++# CONFIG_USER_TIMEPEG_TPT is not set
++
++#
++# Debug libraries
++#
++# CONFIG_LIB_LIBCCMALLOC is not set
+--- ./vendors/Sony/Clie/inittab.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/inittab	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,8 @@
++# inittab for uClinux
++# Format:
++# ttyline:termcap-entry:getty-command
++#inetd:unknown:/bin/inetd
++#boa:unknown:/bin/boa
++#ttyS0:vt100:/bin/agetty 9600 /dev/ttyS0
++ttyS0:vt100:/bin/sh
++#ttyS1:vt100:/bin/sh
+--- ./vendors/Sony/Clie/Makefile.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/Makefile	2004-09-02 17:51:46.000000000 -0600
+@@ -0,0 +1,73 @@
++#
++# Makefile -- Build instructions for Sony Clie
++#
++
++ROMFSIMG = $(IMAGEDIR)/romfs.img
++IMAGE    = $(IMAGEDIR)/image.bin
++
++ROMFS_DIRS = bin dev etc home lib mnt proc usr var
++
++DEVICES = \
++	tty,c,5,0      console,c,5,1      cua0,c,5,64      cua1,c,5,65  \
++	mem,c,1,1      kmem,c,1,2         null,c,1,3       ram0,b,1,0 \
++	\
++	ram1,b,1,1 \
++	\
++	ptyp0,c,2,0    ptyp1,c,2,1        ptyp2,c,2,2      ptyp3,c,2,3 \
++	ptyp4,c,2,4    ptyp5,c,2,5        ptyp6,c,2,6      ptyp7,c,2,7 \
++	\
++	rom0,b,31,0    rom1,b,31,1        rom2,b,31,2      rom3,b,31,3 \
++	rom4,b,31,4    rom5,b,31,5        rom6,b,31,6      rom7,b,31,7 \
++	rom8,b,31,8    rom9,b,31,9 \
++	\
++	ttyS0,c,4,64   ttyS1,c,4,65 \
++	\
++	tty0,c,4,0     tty1,c,4,1         tty2,c,4,2       tty3,c,4,3 \
++	\
++	ttyp0,c,3,0    ttyp1,c,3,1        ttyp2,c,3,2      ttyp3,c,3,3 \
++	ttyp4,c,3,4    ttyp5,c,3,5        ttyp6,c,3,6      ttyp7,c,3,7 \
++	\
++	zero,c,1,5     random,c,1,8       urandom,c,1,9 \
++	\
++	modem,c,24,64 \
++	cuam,c,25,64 \
++	fb0,c,29,0 \
++	ts,c,10,9
++
++
++clean:
++	$(MAKE) -C ../palm-loader clean
++
++romfs:
++	[ -d $(ROMFSDIR)/$$i ] || mkdir -p $(ROMFSDIR)
++	for i in $(ROMFS_DIRS); do \
++		[ -d $(ROMFSDIR)/$$i ] || mkdir -p $(ROMFSDIR)/$$i; \
++	done
++	for i in $(DEVICES); do \
++		touch $(ROMFSDIR)/dev/@$$i; \
++	done
++	$(ROMFSINST) -s /var/tmp /tmp
++	$(ROMFSINST) -s /bin /sbin
++	$(ROMFSINST) /etc/rc
++	$(ROMFSINST) /etc/inittab
++	case "$(LINUXDIR)" in \
++	*2.4.*) ;; \
++	*) echo "ttyS0:linux:/bin/sh" >> $(ROMFSDIR)/etc/inittab ;; \
++	esac
++	$(ROMFSINST) /etc/motd
++
++vendor_download:
++	$(MAKE) -C ../palm-loader download
++
++image:
++	[ -d $(IMAGEDIR) ] || mkdir -p $(IMAGEDIR)
++	genromfs -v -V "ROMdisk" -f $(ROMFSIMG) -d $(ROMFSDIR)
++	$(CROSS_COMPILE)objcopy -O binary \
++			--set-section-flags=.romvec=CONTENTS,ALLOC,LOAD,READONLY,CODE \
++			-j .romvec \
++			-j .text \
++			$(ROOTDIR)/$(LINUXDIR)/linux $(IMAGEDIR)/linux.text
++	$(CROSS_COMPILE)objcopy -O binary -j .data $(ROOTDIR)/$(LINUXDIR)/linux \
++			$(IMAGEDIR)/linux.data
++	cat $(IMAGEDIR)/linux.text $(IMAGEDIR)/linux.data $(ROMFSIMG) > $(IMAGE)
++	$(MAKE) -C ../palm-loader
+--- ./vendors/Sony/Clie/motd.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/motd	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,13 @@
++Welcome to
++          ____ _  _
++         /  __| ||_|                 
++    _   _| |  | | _ ____  _   _  _  _ 
++   | | | | |  | || |  _ \| | | |\ \/ /
++   | |_| | |__| || | | | | |_| |/    \
++   |  ___\____|_||_|_| |_|\____|\_/\_/
++   | |
++   |_|
++
++For further information check:
++http://www.uclinux.org/
++
+--- ./vendors/Sony/Clie/rc.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/rc	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,12 @@
++hostname ClieT615C
++/bin/expand /etc/ramfs.img /dev/ram0
++mount -t proc proc /proc
++mount -t ext2 /dev/ram0 /var
++mkdir /var/tmp
++mkdir /var/log
++mkdir /var/run
++mkdir /var/lock
++mkdir /var/empty
++ifconfig lo 127.0.0.1
++route add -net 127.0.0.0 netmask 255.0.0.0 lo
++cat /etc/motd
+--- ./vendors/Sony/Clie/README.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/Clie/README	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,51 @@
++The files in this directory should let you build
++uClinux 2.4.x for Sony Clie PEG-T615C PalmOS
++handheld device. It would probably also work for
++other Dragonball-based devices with enough RAM.
++
++The crt code and other things are mixed and matched
++from the other Dragonball-based boards and the Palm
++Loader for the Palm III/Palm V devices. Some info
++had to be pulled out from the disassembly of the
++Clie ROM.
++
++If your prc file size exceeds 2Mb limit, you will
++have to make some minor changes to PalmLoader.c
++and the crt code (move everything by 1kb for each
++extra megabyte of the prc).
++
++There is no splash screen when Linux boots, since
++Sony apparently does not use the standard Dragonball
++LCD controller, but rather an extra chip. I could
++not get any documentation for it, so no LCD at the
++moment.
++
++In order to get the thing working:
++
++0. Get a serial cable for your Clie (the vendor
++supplied one is USB)
++
++1. Back up all data from Clie
++
++2. Get uClinux, install and configure the build
++environment
++
++3. Get Palm development environment (prc-tools,
++pilrc, palmos sdk). This is needed to be able to
++build palm-loader
++
++4. Configure and build the kernel and the prc
++file
++
++5. Install the prc file on Clie
++
++6. Connect a terminal at 9600 baud (8 bit, no
++parity, one stop bit) and execute Palm Loader on
++Clie. Observe the Linux boot messages and root
++prompt. Happy hacking!
++
++---
++
++08/04/2004
++Anton Solovyev
++anton@solovyev.com
+--- ./vendors/Sony/palm-loader/Makefile.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/palm-loader/Makefile	2004-08-28 03:49:17.000000000 -0600
+@@ -0,0 +1,65 @@
++#
++# build a Palm app that can be downloaded to run uClinux
++#
++
++APP = uClinuxPalm
++ICONTEXT = "Palm Loader"
++APPID = pFld
++IMAGE = $(IMAGEDIR)/image.bin
++OBJS = PalmLoader.o
++
++PALMOSCC = m68k-palmos-coff-gcc
++
++# uncomment this if you want to build a gdb debuggable version
++# DEFINES = -DDEBUG
++# -Dint=long
++
++INCLUDES =  
++
++CSFLAGS = -O2 -static -S $(DEFINES) $(INCLUDES)
++CFLAGS = -O2 -static  $(DEFINES) $(INCLUDES)
++
++LIBS = 
++
++PILRC = pilrc
++TXT2BITM = txt2bitm
++OBJRES = m68k-palmos-coff-obj-res
++BUILDPRC = build-prc
++
++PRC = $(IMAGEDIR)/$(APP).prc
++
++all: $(PRC)
++
++.S.o:
++	$(PALMOSCC) $(TARGETFLAGS) -c $<
++
++.c.s:
++	$(PALMOSCC) $(CSFLAGS) $<
++
++.c.o:
++	$(PALMOSCC) -c $(CFLAGS) $<
++
++$(PRC): code.stamp bin.stamp page0000.bin
++	$(BUILDPRC) $@ $(ICONTEXT) $(APPID) *.grc *.bin
++
++code.stamp: $(APP)
++	$(OBJRES) $(APP)
++	touch code.stamp
++
++bin.stamp: PalmLoader.rcp
++	$(PILRC) PalmLoader.rcp
++	touch bin.stamp
++
++$(APP): $(OBJS)
++	$(PALMOSCC) $(CFLAGS) $(OBJS) $(LIBS) -o $@
++
++download:
++	PILOTRATE=57600 pilot-xfer -p /dev/ttyS1 -i $(PRC)
++
++page0000.bin: $(IMAGE)
++	rm -f page????.bin
++	./split.pl $(IMAGE)
++
++clean:
++	rm -rf *.[oa] $(APP) *.bin *.stamp *.[pg]rc
++
+--- ./vendors/Sony/palm-loader/PalmLoader.bmp.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/palm-loader/PalmLoader.bmp	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1 @@
++BMæ       >   (                 Ä   m  m            ˇˇˇ p  ˇx  ˇ8 ˛ ˛(¸Åº	$8ó0 Å'‡ ‡D‡ ‡êÁ‡Å˜‡Ω˜‡ú«‡<G‡<‡~‡ˇ7‡ˇˇ¿ˇˇ¿ˇˇ¿ˇˇÄˇˇÄˇœ ˇˇ ˇ˛ ˇ¯  ‡    
+\ No newline at end of file
+--- ./vendors/Sony/palm-loader/PalmLoader.c.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/palm-loader/PalmLoader.c	2004-08-28 03:53:21.000000000 -0600
+@@ -0,0 +1,124 @@
++/* pilrctst.c:  Test program for PilRC
++ *
++ * Wes Cherry
++ * wesc@ricochet.net
++ */
++
++#pragma pack(2)
++
++#include "PalmLoader.h"
++#include <PalmOS.h>
++#include <PalmCompatibility.h>
++
++int MC(char *dst, char *src, int len) { while (len--) *(dst++) = *(src++); }
++
++int kidForm;
++
++#define NPAGES 4096
++
++DWord
++PilotMain (Word cmd, Ptr cmdPBP, Word launchFlags)
++{
++  short err;
++  EventType e;
++  FormType *pfrm;
++
++  int i;
++  int j;
++  void *ptr;
++
++  VoidHand* hdl;
++  void** blk;
++  char* tmp;
++
++  if (!cmd)
++    {
++      kidForm = kidForm1;
++      FrmGotoForm (kidForm);
++
++      while (1)
++	{
++	  EvtGetEvent (&e, 100);
++	  if (SysHandleEvent (&e))
++	    continue;
++	  if (MenuHandleEvent ((void *) 0, &e, &err))
++	    continue;
++
++	  switch (e.eType)
++	    {
++	    case ctlSelectEvent:
++	      if (e.data.ctlSelect.controlID == kidOk)
++		{
++                  hdl = MemPtrNew(sizeof(VoidHand) * NPAGES);
++                  blk = MemPtrNew(sizeof(void*) * NPAGES);
++                  tmp = MemPtrNew(0x1000);
++                  if(!hdl || !blk || !tmp) {
++                    printf ("Can't allocate enough memory\n");
++                    break;
++                  }
++		  printf ("Locking resources...\n");
++                  for (i=0; i<NPAGES; i++) {
++                    hdl[i] = DmGetResource('page', i);
++                    if (!hdl[i]) {
++		       blk[i] = (void *)0;
++		       break;
++		    }
++                    blk[i] = MemHandleLock(hdl[i]);
++                    if (!blk[i]) {
++                       printf("\nFailed to lock page %d\n",i);
++                       break;
++                    }
++                  }
++		  printf("%d pages in 0x%.6lX bytes\n", i, (long)i * 0x1000);
++                  /* supervisor mode, no interrupts */
++                  asm volatile ("movew #0x2700, %sr");
++                  *((volatile unsigned int*) 0xFFFFF116) &= ~0xE000;
++                  /* reorder pages */
++                  printf("Ordering image pages...\n");
++                  ptr = (void *)0;
++                  for (i=0; blk[i]; i++) {
++                   for (j=i+1; blk[j]; j++) {
++                      if (blk[j] < blk[i]) {
++                        /* wrong order... swap */
++                        MC(tmp, blk[j], 0x1000);
++                        MC(blk[j], blk[i], 0x1000);
++                        MC(blk[i], tmp, 0x1000);
++                        ptr = blk[j];
++                        blk[j] = blk[i];
++                        blk[i] = ptr;
++                      }
++                    }
++                  }
++                  /* kernel starts at 0x4000, entry point at 0x4400 */
++		  MC((void*) 0x0000, (void *) blk, sizeof(void*) * NPAGES);
++		  MC((void*) 0x4000, (void*)(*(unsigned long*)0), 0x1000);
++                  asm volatile ("moveal #0xFFFFF0, %sp");
++		  asm volatile ("movel #0, %a0");
++                  asm volatile ("jmp 0x4400");
++		}
++	      goto Dft;
++	      break;
++	    case frmLoadEvent:
++	      FrmSetActiveForm (FrmInitForm (e.data.frmLoad.formID));
++	      break;
++
++	    case frmOpenEvent:
++	      pfrm = FrmGetActiveForm ();
++	      FrmDrawForm (pfrm);
++	      break;
++
++	    case menuEvent:
++	      FrmAlert (kidAlert1);
++	      break;
++
++	    case appStopEvent:
++	      return 0;
++
++	    default:
++	    Dft:
++	      FrmHandleEvent (FrmGetActiveForm (), &e);
++	    }
++	}
++    }
++  return 0;
++}
+--- ./vendors/Sony/palm-loader/PalmLoader.h.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/palm-loader/PalmLoader.h	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,8 @@
++#define kidForm1 1000
++
++#define kidOk 9999
++#define kidDo 9998
++
++#define kidAlert1 1000
++#define kidMenu1 1000
++#define kidHelp1 1000
+--- ./vendors/Sony/palm-loader/PalmLoader.rcp.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/palm-loader/PalmLoader.rcp	2004-08-05 09:53:36.000000000 -0600
+@@ -0,0 +1,44 @@
++// pilrctst.rcp
++// Script to test and demonstrate PilRC
++// Wes Cherry
++// wesc@ricochet.net
++
++#include "PalmLoader.h"
++
++FORM ID kidForm1 AT (2 2 156 156)
++USABLE
++MODAL
++HELPID kidHelp1
++MENUID kidMenu1
++BEGIN
++	TITLE "Lineo PalmV uClinux Demo"
++	LABEL "This will erase all data!" ID 2000 AT (CENTER 20) FONT 0
++
++	BUTTON "Boot Linux" ID kidOk AT (CENTER 140 AUTO AUTO)
++
++END
++
++MENU ID kidMenu1
++BEGIN
++      PULLDOWN "File"
++      BEGIN
++      	MENUITEM "Close" 5002
++      END
++END
++
++ALERT kidAlert1
++HELPID kidHelp1
++INFORMATION
++BEGIN
++	TITLE "Bummer!"
++	MESSAGE "Them there Menu items don't do nothin."
++	BUTTONS "Ok" "Continue"
++END
++
++STRING kidHelp1 "This applet downloads a uClinux image.\n"\
++	"by D. Jeff Dionne\n"\
++	"Jeff@rt-control.com"
++
++ICON "PalmLoader.bmp"
++
++VERSION 1 "0.1.0"
+--- ./vendors/Sony/palm-loader/split.pl.ORIG	1969-12-31 17:00:00.000000000 -0700
++++ ./vendors/Sony/palm-loader/split.pl	2004-08-28 03:37:35.000000000 -0600
+@@ -0,0 +1,30 @@
++#!/usr/bin/perl
++
++use strict;
++
++open(INP, '<', $ARGV[0]) or die "Can't open input file $ARGV[0]: $!\n";
++
++my $i = 0;
++while(1)
++{
++	my $nread = sysread(INP, my $page, 4096);
++
++	if($nread == 0)
++	{
++		last;
++	}
++
++	if($nread < 4096)
++	{
++		$page .= "\000" x (4096 - length($page));
++	}
++
++	my $file = 'page' . sprintf("%04x", $i) . '.bin';
++	open(PAGE, '>', $file) or die "Can't create output file $file: $!\n";
++	print PAGE $page;
++	close(PAGE);
++
++	$i++;
++}
++
++close(INP);
