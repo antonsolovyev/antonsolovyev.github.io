@@ -1,35 +1,36 @@
-<!DOCTYPE doctype PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!DOCTYPE html>
 
 <html>
+    <head>
+        <title>Assorted Hacks</title>
+    </head>
 
-<head>
-
-<title>Assorted Hacks</title>
-
-</head>
-
-<body>
-
-<h1>Assorted Hacks</h1>
-
-<h2 id="libgmail">Gmail and libgmail</h2>
-
-<p>I was recently faced with a problem of downloading my Google mail using Web interface only (POP3/IMAP and forwarding were disabled).
-
-<p>I found a project (a library) called <a href="http://libgmail.sourceforge.net/">libgmail.py</a> that does just what is needed. Unfortunately, Google has changed Web interface
-and the tool does not work anymore. The project at this point is abandoned as far as I can tell.
-
-<p>I wrote a Python module (<i>Gmail.py</i>) that deals with Google's Single Sign On solution and retrieves messages using Gmail Web interface. The second module (<i>GmailFetchmail.py</i>) retrieves
-messages using <i>Gmail.py</i> and feeds them to the local sendmail MTA to be received using normal UNIX mail tools. <a href="https://github.com/antonsolovyev/gmail/">The source code can be found here</a>.
-
-<p>Before using <i>Gmail.py</i> you almost certainly would need to modify the source to account for your particular Single Sign On form details (the <i>Gmail.login()</i> method). You also need
-to switch Gmail into Basic HTML mode.
-
-<hr>
-<address>
-<a href="mailto:anton@solovyev.com"> anton@solovyev.com </a> / <a href="http://www.solovyev.com/"> Anton Solovyev </a>
-</address>
-
-</body>
-
+    <body>
+        <h1>Assorted Hacks</h1>
+        
+        <h2 id="libgmail">Gmail and libgmail</h2>
+        
+        <p>I was recently faced with a problem of downloading my Google mail using Web interface only (POP3/IMAP and
+            forwarding were disabled).
+        
+        <p>I found a project (a library) called <a href="http://libgmail.sourceforge.net/">libgmail.py</a> that does
+            just what is needed. Unfortunately, Google has changed Web interface and the tool does not work anymore.
+            The project at this point is abandoned as far as I can tell.
+        
+        <p>I wrote a Python module (<i>Gmail.py</i>) that deals with Google's Single Sign On solution and retrieves
+            messages using Gmail Web interface. The second module (<i>GmailFetchmail.py</i>) retrieves messages using
+            <i>Gmail.py</i> and feeds them to the local sendmail MTA to be received using normal UNIX mail tools.
+            <a href="https://github.com/antonsolovyev/gmail/">The source code can be found here</a>.
+        
+        <p>Before using <i>Gmail.py</i> you almost certainly would need to modify the source to account for your
+            particular Single Sign On form details (the <i>Gmail.login()</i> method). You also need to switch Gmail
+            into Basic HTML mode.
+        
+        <hr>
+        
+        <address>
+            <a href="mailto:anton@solovyev.com"> anton@solovyev.com </a> / <a href="http://www.solovyev.com/"> Anton Solovyev </a>
+        </address>
+    
+    </body>
 </html>
