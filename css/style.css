@@ -3,3 +3,14 @@
         content: none
     }
 }
+
+#header {
+    position: relative;
+}
+
+#header h1 {
+    position: absolute;
+    top: 75%;
+    left: 3%;
+    color: lightcyan;
+}
